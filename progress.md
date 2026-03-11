@@ -18,3 +18,14 @@ Original prompt: 我想做一个欧洲卡车模拟器的游戏里面要有一二
 - 2026-03-11: 新增菜单选项（模式、驾照项目、载重），HUD 新增辅助系统状态、规则状态、奖牌显示。
 - 2026-03-11: Playwright 客户端回归通过（output/web-game-opt-r1~r3），无新的 JS 错误文件。
 - TODO: 可把交通灯和限速牌加上 2D 数字贴图；加入回放 UI（暂停/拖动时间轴）。
+- 2026-03-11: 三轮优化收尾（“全都做”执行完成）：
+  - 修复驾照索引错误：`state.license.type` 改为 `state.license.key`，避免 HUD/结算在 IA/IB/B 项目下取名异常。
+  - 设置同步重构：新增 `syncSetupFromControls()`，菜单变更时先同步 setup，再刷新世界主题与合同预览，避免模式切换后合同状态错乱。
+  - 合同与 HUD 补齐：新增档位/转速、幽灵状态、违规计数、合同进度(百分比+倒计时)显示；结算显示本单收益与钱包。
+  - 兼容按键：保留 `1/2/3/C/G/V`，新增 `B` 视角循环、`Enter` 幽灵开关、`Space` 对比镜头（用于自动化和键位冗余）。
+  - `render_game_to_text` 扩展：输出 gear/rpm/jackknife、罚分分项、合同与世界主题状态，便于自动回归判定。
+- 2026-03-11: 回归验证（无新 JS error）：
+  - `output/web-game-opt-r4-race`：验证视角切换、幽灵开关、HUD 新字段更新。
+  - `output/web-game-opt-r4-space`：验证 `Space` 可触发 compareMode。
+  - `output/web-game-opt-r4-manual`：Playwright 脚本覆盖工业城+雨夜主题、合同 HUD、驾照 IA-2 模式标题与计时显示。
+- TODO: 可继续优化“回放系统（暂停/时间轴/多镜头回放）”与“AI 交通行为层（换道意图、避让策略、事故恢复）”。

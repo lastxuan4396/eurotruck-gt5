@@ -27,9 +27,9 @@
             <label>
               驾照项目
               <select id="license-select">
-                <option value="precision">A-1 精准刹停</option>
-                <option value="slalom">A-2 蛇形控车</option>
-                <option value="clean">A-3 清洁冲刺</option>
+                <option value="a1_precision">A-1 精准刹停</option>
+                <option value="a2_slalom_4">A-2 蛇形控车(4门)</option>
+                <option value="a3_clean">A-3 清洁冲刺</option>
               </select>
             </label>
             <label>
@@ -46,6 +46,30 @@
                 <option value="0.2">轻载</option>
                 <option value="0.55" selected>标准</option>
                 <option value="0.9">重载</option>
+              </select>
+            </label>
+            <label>
+              城市主题
+              <select id="city-select">
+                <option value="alpine" selected>Alpine</option>
+                <option value="coast">Coast</option>
+                <option value="industrial">Industrial</option>
+              </select>
+            </label>
+            <label>
+              天气
+              <select id="weather-select">
+                <option value="clear" selected>晴朗</option>
+                <option value="rain">降雨</option>
+                <option value="fog">浓雾</option>
+              </select>
+            </label>
+            <label>
+              时段
+              <select id="time-select">
+                <option value="day" selected>白天</option>
+                <option value="sunset">黄昏</option>
+                <option value="night">夜晚</option>
               </select>
             </label>
             <label>
@@ -78,6 +102,7 @@
           <div class="daily-box">
             <p class="daily-title">Daily Challenge</p>
             <p id="daily-challenge" class="daily-text">--</p>
+            <p id="contract-brief" class="daily-text">货运合同: --</p>
           </div>
 
           <button id="start-btn" class="button-primary">开始驾驶</button>
@@ -86,7 +111,8 @@
             <h2>操作</h2>
             <p>转向: A / D 或 ← / →</p>
             <p>油门 / 刹车: W/S 或 ↑/↓</p>
-            <p>视角: 1 / 2 / 3 (或 C 循环)</p>
+            <p>视角: 1 / 2 / 3 (或 C/B 循环)</p>
+            <p>幽灵: G/Enter 开关 | V/Space 对比镜头</p>
             <p>暂停: Esc | 重置车辆: R | 全屏: F</p>
           </div>
         </div>
@@ -114,14 +140,18 @@
             <span id="hud-speed">0</span>
             <small>km/h</small>
           </div>
+          <p id="hud-gear" class="pill">N | 0000 rpm</p>
           <p id="hud-view" class="pill">VIEW 1</p>
           <p id="hud-assists" class="pill">ABS OFF | TCS OFF</p>
+          <p id="hud-ghost" class="pill">GHOST ON</p>
         </div>
         <div class="hud-right">
           <p id="hud-clean">Clean Drive 100</p>
           <p id="hud-score">GT Points 0</p>
           <p id="hud-setup">TCS 4 | SPORT</p>
           <p id="hud-rule">Limit -- | Light --</p>
+          <p id="hud-penalty">Penalty SPD0 RED0 COL0</p>
+          <p id="hud-contract">Contract --</p>
         </div>
       </div>
 

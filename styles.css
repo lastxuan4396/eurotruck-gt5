@@ -122,6 +122,10 @@ select {
   font-size: 14px;
 }
 
+#contract-brief {
+  color: #b8f7d7;
+}
+
 .button-primary {
   width: 100%;
   border: none;

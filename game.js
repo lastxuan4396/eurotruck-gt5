@@ -16,31 +16,57 @@ const STORAGE_KEYS = {
 };
 
 const CAMERA_PRESETS = {
-  1: { fov: 70, near: 0.03, posLerp: 0.26, lookLerp: 0.32 },
-  2: { fov: 76, near: 0.05, posLerp: 0.22, lookLerp: 0.26 },
-  3: { fov: 64, near: 0.2, posLerp: 0.12, lookLerp: 0.16 },
+  1: { fov: 70, near: 0.03, posLerp: 0.26, lookLerp: 0.32, shake: 0.09, roll: 0.028, speedZoom: 0.12 },
+  2: { fov: 78, near: 0.05, posLerp: 0.22, lookLerp: 0.26, shake: 0.03, roll: 0.014, speedZoom: 0.08 },
+  3: { fov: 64, near: 0.2, posLerp: 0.12, lookLerp: 0.16, shake: 0.06, roll: 0.04, speedZoom: 0.1 },
 };
 
 const MEDAL_ORDER = ["-", "B", "S", "G"];
 const LIGHT_CYCLE = { green: 11, yellow: 2, red: 8, total: 21 };
 
 const licenseDefinitions = {
-  precision: {
-    name: "A-1 精准刹停",
-    desc: "40 秒内在刹停区内停下",
-    timeLimit: 40,
-  },
-  slalom: {
-    name: "A-2 蛇形控车",
-    desc: "通过 4 个蛇形门",
-    timeLimit: 48,
-  },
-  clean: {
-    name: "A-3 清洁冲刺",
-    desc: "35 秒内完成 Sector 1 且无碰撞",
-    timeLimit: 35,
-  },
+  a1_precision: { name: "A-1 精准刹停", desc: "40 秒内在刹停区停下", timeLimit: 40, kind: "precision" },
+  a2_slalom_4: { name: "A-2 蛇形控车(4门)", desc: "通过 4 个蛇形门", timeLimit: 48, kind: "slalom", gateCount: 4 },
+  a3_clean: { name: "A-3 清洁冲刺", desc: "35 秒内完成 Sector 1 且无违规", timeLimit: 35, kind: "clean" },
+  b1_precision_hard: { name: "B-1 重载精准刹停", desc: "重载精准刹停", timeLimit: 34, kind: "precision", forceCargo: 0.9 },
+  b2_slalom_6: { name: "B-2 蛇形控车(6门)", desc: "通过 6 个蛇形门", timeLimit: 52, kind: "slalom", gateCount: 6 },
+  b3_clean_speed: { name: "B-3 清洁高速", desc: "28 秒内完成 Sector 1", timeLimit: 28, kind: "clean" },
+  ib1_night_precision: { name: "IB-1 夜间刹停", desc: "夜间精准刹停", timeLimit: 37, kind: "precision", forceTime: "night" },
+  ib2_fog_slalom: { name: "IB-2 浓雾蛇形", desc: "浓雾条件通过蛇形门", timeLimit: 50, kind: "slalom", gateCount: 5, forceWeather: "fog" },
+  ib3_rain_clean: { name: "IB-3 雨战清洁", desc: "雨天清洁冲刺", timeLimit: 33, kind: "clean", forceWeather: "rain" },
+  ia1_precision_master: { name: "IA-1 制动大师", desc: "超短时限精准刹停", timeLimit: 31, kind: "precision", forceCargo: 0.9 },
+  ia2_slalom_master: { name: "IA-2 蛇形大师", desc: "7 门蛇形连贯通过", timeLimit: 56, kind: "slalom", gateCount: 7 },
+  ia3_clean_master: { name: "IA-3 终极清洁", desc: "24 秒完成且无任何罚分", timeLimit: 24, kind: "clean" },
 };
+const LEGACY_LICENSE_MAP = {
+  precision: "a1_precision",
+  slalom: "a2_slalom_4",
+  clean: "a3_clean",
+};
+
+const CITY_THEMES = {
+  alpine: { sky: 0x95c3e8, fog: 0x93c2e7, ground: 0x5d8f58, mountain: 0x6f8f74 },
+  coast: { sky: 0x8dd7e8, fog: 0x8bc8d9, ground: 0x72997c, mountain: 0x688492 },
+  industrial: { sky: 0xaebbc8, fog: 0x99a5b1, ground: 0x6f7f6e, mountain: 0x7b8288 },
+};
+
+const WEATHER_PRESETS = {
+  clear: { fogNear: 170, fogFar: 980, ambient: 1.05, rain: false },
+  rain: { fogNear: 120, fogFar: 620, ambient: 0.86, rain: true },
+  fog: { fogNear: 80, fogFar: 380, ambient: 0.78, rain: false },
+};
+
+const DAY_PRESETS = {
+  day: { hemi: 1.08, sun: 1.12, skyTint: 0x000000 },
+  sunset: { hemi: 0.96, sun: 0.9, skyTint: 0x1c0f07 },
+  night: { hemi: 0.5, sun: 0.18, skyTint: 0x102040 },
+};
+
+const CONTRACT_TEMPLATES = [
+  { id: "food", name: "冷链食品", baseReward: 1200, urgencyBonus: 480 },
+  { id: "electronics", name: "精密电子", baseReward: 1500, urgencyBonus: 620 },
+  { id: "medical", name: "医疗物资", baseReward: 1800, urgencyBonus: 760 },
+];
 
 const dailyDefinitions = [
   { id: "daily_clean_lap", text: "今日任务: 0 碰撞完成 1 圈", target: 1 },
@@ -58,10 +84,14 @@ const dom = {
   license: document.querySelector("#license-select"),
   laps: document.querySelector("#laps-select"),
   cargo: document.querySelector("#cargo-select"),
+  city: document.querySelector("#city-select"),
+  weather: document.querySelector("#weather-select"),
+  time: document.querySelector("#time-select"),
   power: document.querySelector("#power-select"),
   tc: document.querySelector("#tc-select"),
   brake: document.querySelector("#brake-select"),
   daily: document.querySelector("#daily-challenge"),
+  contractBrief: document.querySelector("#contract-brief"),
   hud: document.querySelector("#hud"),
   statusBanner: document.querySelector("#status-banner"),
   finishTitle: document.querySelector("#finish-title"),
@@ -72,12 +102,16 @@ const dom = {
   hudSector: document.querySelector("#hud-sector"),
   hudMedals: document.querySelector("#hud-medals"),
   hudSpeed: document.querySelector("#hud-speed"),
+  hudGear: document.querySelector("#hud-gear"),
   hudView: document.querySelector("#hud-view"),
   hudAssists: document.querySelector("#hud-assists"),
+  hudGhost: document.querySelector("#hud-ghost"),
   hudClean: document.querySelector("#hud-clean"),
   hudScore: document.querySelector("#hud-score"),
   hudSetup: document.querySelector("#hud-setup"),
   hudRule: document.querySelector("#hud-rule"),
+  hudPenalty: document.querySelector("#hud-penalty"),
+  hudContract: document.querySelector("#hud-contract"),
 };
 
 const persistedSettings = loadStorage(STORAGE_KEYS.settings, {});
@@ -87,6 +121,8 @@ const persistedStats = loadStorage(STORAGE_KEYS.stats, {
   bestSectorMedals: ["-", "-", "-"],
   licenseMedals: {},
   dailyDone: {},
+  wallet: 0,
+  completedContracts: 0,
 });
 const persistedGhost = loadStorage(STORAGE_KEYS.ghost, null);
 
@@ -97,12 +133,15 @@ const state = {
   keys: new Set(),
   setup: {
     runMode: "race",
-    licenseType: "precision",
+    licenseType: "a1_precision",
     totalLaps: 3,
     powerMap: 1,
     tcLevel: 4,
     brakeBias: 0,
     cargoLoad: 0.55,
+    city: "alpine",
+    weather: "clear",
+    dayPhase: "day",
   },
   truck: {
     distance: 0,
@@ -114,6 +153,11 @@ const state = {
     wheelSlip: 0,
     steerInput: 0,
     lateralG: 0,
+    gear: 0,
+    rpm: 850,
+    trailerYaw: 0,
+    jackknifeRisk: 0,
+    deliveredDistance: 0,
   },
   race: {
     raceTime: 0,
@@ -135,6 +179,9 @@ const state = {
     gtPoints: 0,
     penalties: 0,
     rulePenalties: 0,
+    speedPenaltyCount: 0,
+    redPenaltyCount: 0,
+    collisionPenaltyCount: 0,
   },
   assists: {
     absActive: false,
@@ -151,9 +198,11 @@ const state = {
     bestRun: isValidGhost(persistedGhost) ? persistedGhost : null,
     lapTimer: 0,
     enabled: true,
+    compareMode: false,
   },
   license: {
     active: false,
+    key: "a1_precision",
     type: "precision",
     timeLimit: 40,
     success: false,
@@ -161,8 +210,17 @@ const state = {
     message: "",
     nextGate: 0,
     stopDone: false,
+    gateCount: 4,
     gates: [],
     stopZone: { start: 0, end: 0 },
+  },
+  logistics: {
+    contract: null,
+    deliveryDueSec: 0,
+    delivered: false,
+    payout: 0,
+    wallet: persistedStats.wallet ?? 0,
+    completedContracts: persistedStats.completedContracts ?? 0,
   },
   daily: {
     ...buildDailyChallenge(),
@@ -171,6 +229,9 @@ const state = {
   },
   performance: {
     trafficLodDistance: 170,
+    fixedStep: 1 / 60,
+    accumulator: 0,
+    maxSubSteps: 5,
   },
   meta: {
     worldTime: 0,
@@ -206,6 +267,8 @@ const tempQuat = new THREE.Quaternion();
 const tempVecA = new THREE.Vector3();
 const tempVecB = new THREE.Vector3();
 const dummyObject = new THREE.Object3D();
+const sceneLighting = { hemi: null, sun: null };
+const environmentRefs = { ground: null, mountainMaterial: null, rain: null };
 
 setupLighting();
 setupEnvironment();
@@ -225,7 +288,10 @@ scene.add(roadRules.root);
 const licenseMarkers = createLicenseMarkers();
 scene.add(licenseMarkers.root);
 
+populateLicenseOptions();
 applySettingsToControls();
+applyWorldThemeFromSetup();
+prepareContractForSession();
 updateDailyChallengeText();
 bindEvents();
 resetRaceState();
@@ -252,6 +318,9 @@ function setupLighting() {
   sun.shadow.camera.top = 380;
   sun.shadow.camera.bottom = -380;
   scene.add(sun);
+
+  sceneLighting.hemi = hemi;
+  sceneLighting.sun = sun;
 }
 
 function setupEnvironment() {
@@ -262,12 +331,14 @@ function setupEnvironment() {
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
+  environmentRefs.ground = ground;
 
   const ringMaterial = new THREE.MeshStandardMaterial({
     color: 0x6f8f74,
     roughness: 0.95,
     metalness: 0.02,
   });
+  environmentRefs.mountainMaterial = ringMaterial;
 
   for (let i = 0; i < 38; i += 1) {
     const angle = (i / 38) * Math.PI * 2;
@@ -278,6 +349,23 @@ function setupEnvironment() {
     mountain.receiveShadow = true;
     scene.add(mountain);
   }
+
+  const rainGeom = new THREE.BufferGeometry();
+  const rainCount = 1200;
+  const rainPositions = new Float32Array(rainCount * 3);
+  for (let i = 0; i < rainCount; i += 1) {
+    rainPositions[i * 3] = (Math.random() - 0.5) * 700;
+    rainPositions[i * 3 + 1] = Math.random() * 220 + 20;
+    rainPositions[i * 3 + 2] = (Math.random() - 0.5) * 700;
+  }
+  rainGeom.setAttribute("position", new THREE.BufferAttribute(rainPositions, 3));
+  const rain = new THREE.Points(
+    rainGeom,
+    new THREE.PointsMaterial({ color: 0xb8d6e8, size: 0.35, transparent: true, opacity: 0.45 })
+  );
+  rain.visible = false;
+  scene.add(rain);
+  environmentRefs.rain = rain;
 }
 
 function buildTrack(samples) {
@@ -775,8 +863,8 @@ function createLicenseMarkers() {
   const gateMatGood = new THREE.MeshStandardMaterial({ color: 0x69f6aa, roughness: 0.4 });
   const gateMatWarn = new THREE.MeshStandardMaterial({ color: 0xffc36e, roughness: 0.4 });
 
-  for (let i = 0; i < 4; i += 1) {
-    const d = 90 + i * 52;
+  for (let i = 0; i < 7; i += 1) {
+    const d = 90 + i * 44;
     const targetLane = i % 2 === 0 ? -2.8 : 2.8;
 
     const frame = sampleTrackByDistance(d);
@@ -880,8 +968,16 @@ function bindEvents() {
 
     state.keys.add(key);
 
-    if (key === "c") setCameraMode(state.cameraMode === 3 ? 1 : state.cameraMode + 1);
+    if (key === "c" || key === "b") setCameraMode(state.cameraMode === 3 ? 1 : state.cameraMode + 1);
     if (key === "1" || key === "2" || key === "3") setCameraMode(Number(key));
+    if (key === "g" || key === "enter") {
+      state.ghost.enabled = !state.ghost.enabled;
+      updateHud();
+    }
+    if (key === "v" || key === "space" || key === " " || key === "spacebar") {
+      state.ghost.compareMode = !state.ghost.compareMode;
+      updateHud();
+    }
     if (key === "escape" && isRunActive()) togglePause();
     if (key === "r" && isRunActive()) resetTruckToTrack();
     if (key === "f") toggleFullscreen();
@@ -892,15 +988,53 @@ function bindEvents() {
   });
 
   dom.mode.addEventListener("change", () => {
+    syncSetupFromControls({ applyTheme: true });
     saveSettingsFromControls();
+    prepareContractForSession();
     updateDailyChallengeText();
   });
-  dom.license.addEventListener("change", saveSettingsFromControls);
-  dom.laps.addEventListener("change", saveSettingsFromControls);
-  dom.power.addEventListener("change", saveSettingsFromControls);
-  dom.tc.addEventListener("change", saveSettingsFromControls);
-  dom.brake.addEventListener("change", saveSettingsFromControls);
-  dom.cargo.addEventListener("change", saveSettingsFromControls);
+  dom.license.addEventListener("change", () => {
+    syncSetupFromControls();
+    saveSettingsFromControls();
+    prepareContractForSession();
+  });
+  dom.laps.addEventListener("change", () => {
+    syncSetupFromControls();
+    saveSettingsFromControls();
+    prepareContractForSession();
+  });
+  dom.power.addEventListener("change", () => {
+    syncSetupFromControls();
+    saveSettingsFromControls();
+  });
+  dom.tc.addEventListener("change", () => {
+    syncSetupFromControls();
+    saveSettingsFromControls();
+  });
+  dom.brake.addEventListener("change", () => {
+    syncSetupFromControls();
+    saveSettingsFromControls();
+  });
+  dom.cargo.addEventListener("change", () => {
+    syncSetupFromControls();
+    saveSettingsFromControls();
+    prepareContractForSession();
+  });
+  dom.city.addEventListener("change", () => {
+    syncSetupFromControls({ applyTheme: true });
+    saveSettingsFromControls();
+    prepareContractForSession();
+  });
+  dom.weather.addEventListener("change", () => {
+    syncSetupFromControls({ applyTheme: true });
+    saveSettingsFromControls();
+    prepareContractForSession();
+  });
+  dom.time.addEventListener("change", () => {
+    syncSetupFromControls({ applyTheme: true });
+    saveSettingsFromControls();
+    prepareContractForSession();
+  });
 
   dom.startBtn.addEventListener("click", startRaceFromMenu);
   dom.restartBtn.addEventListener("click", startRaceFromMenu);
@@ -908,12 +1042,18 @@ function bindEvents() {
 
 function applySettingsToControls() {
   if (persistedSettings.mode) dom.mode.value = persistedSettings.mode;
-  if (persistedSettings.license) dom.license.value = persistedSettings.license;
+  if (persistedSettings.license) {
+    const mapped = LEGACY_LICENSE_MAP[persistedSettings.license] ?? persistedSettings.license;
+    if (licenseDefinitions[mapped]) dom.license.value = mapped;
+  }
   if (persistedSettings.laps) dom.laps.value = persistedSettings.laps;
   if (persistedSettings.power) dom.power.value = persistedSettings.power;
   if (persistedSettings.tc) dom.tc.value = persistedSettings.tc;
   if (persistedSettings.brake) dom.brake.value = persistedSettings.brake;
   if (persistedSettings.cargo) dom.cargo.value = persistedSettings.cargo;
+  if (persistedSettings.city) dom.city.value = persistedSettings.city;
+  if (persistedSettings.weather) dom.weather.value = persistedSettings.weather;
+  if (persistedSettings.time) dom.time.value = persistedSettings.time;
 }
 
 function saveSettingsFromControls() {
@@ -925,10 +1065,34 @@ function saveSettingsFromControls() {
     tc: dom.tc.value,
     brake: dom.brake.value,
     cargo: dom.cargo.value,
+    city: dom.city.value,
+    weather: dom.weather.value,
+    time: dom.time.value,
   });
 }
 
-function startRaceFromMenu() {
+function populateLicenseOptions() {
+  const keys = Object.keys(licenseDefinitions);
+  const current = dom.license.value;
+  dom.license.innerHTML = "";
+
+  for (const key of keys) {
+    const option = document.createElement("option");
+    option.value = key;
+    option.textContent = licenseDefinitions[key].name;
+    dom.license.appendChild(option);
+  }
+
+  if (keys.includes(current)) dom.license.value = current;
+  else dom.license.value = keys[0];
+}
+
+function applyWorldThemeFromControls() {
+  syncSetupFromControls();
+  applyWorldThemeFromSetup();
+}
+
+function syncSetupFromControls({ applyTheme = false } = {}) {
   state.setup.runMode = dom.mode.value;
   state.setup.licenseType = dom.license.value;
   state.setup.totalLaps = Number(dom.laps.value);
@@ -936,8 +1100,127 @@ function startRaceFromMenu() {
   state.setup.tcLevel = Number(dom.tc.value);
   state.setup.brakeBias = Number(dom.brake.value);
   state.setup.cargoLoad = Number(dom.cargo.value);
+  state.setup.city = dom.city.value;
+  state.setup.weather = dom.weather.value;
+  state.setup.dayPhase = dom.time.value;
+
+  if (applyTheme) applyWorldThemeFromSetup();
+}
+
+function applyWorldThemeFromSetup() {
+  const city = CITY_THEMES[state.setup.city] ?? CITY_THEMES.alpine;
+  const weather = WEATHER_PRESETS[state.setup.weather] ?? WEATHER_PRESETS.clear;
+  const day = DAY_PRESETS[state.setup.dayPhase] ?? DAY_PRESETS.day;
+
+  scene.background.setHex(city.sky);
+  scene.background.offsetHSL(0, 0, -day.hemi * 0.08);
+  scene.fog.color.setHex(city.fog);
+  scene.fog.near = weather.fogNear;
+  scene.fog.far = weather.fogFar;
+
+  environmentRefs.ground.material.color.setHex(city.ground);
+  environmentRefs.mountainMaterial.color.setHex(city.mountain);
+
+  sceneLighting.hemi.intensity = weather.ambient * day.hemi;
+  sceneLighting.sun.intensity = day.sun;
+
+  if (state.setup.dayPhase === "night") {
+    sceneLighting.sun.color.setHex(0x99b5ff);
+  } else if (state.setup.dayPhase === "sunset") {
+    sceneLighting.sun.color.setHex(0xffc98a);
+  } else {
+    sceneLighting.sun.color.setHex(0xfff1cf);
+  }
+
+  if (environmentRefs.rain) {
+    environmentRefs.rain.visible = weather.rain;
+    if (weather.rain) {
+      const attr = environmentRefs.rain.geometry.attributes.position;
+      for (let i = 0; i < attr.count; i += 1) {
+        const y = attr.getY(i) - 2.6;
+        attr.setY(i, y < 0 ? 220 : y);
+      }
+      attr.needsUpdate = true;
+    }
+  }
+}
+
+function updateRainSystem(dt) {
+  if (!environmentRefs.rain?.visible) return;
+  const attr = environmentRefs.rain.geometry.attributes.position;
+  for (let i = 0; i < attr.count; i += 1) {
+    const y = attr.getY(i) - (52 + state.truck.speed * 0.8) * dt;
+    let x = attr.getX(i);
+    let z = attr.getZ(i);
+
+    if (y < 0) {
+      attr.setY(i, 220 + Math.random() * 40);
+      x = truck.group.position.x + (Math.random() - 0.5) * 500;
+      z = truck.group.position.z + (Math.random() - 0.5) * 500;
+      attr.setX(i, x);
+      attr.setZ(i, z);
+    } else {
+      attr.setY(i, y);
+    }
+  }
+  attr.needsUpdate = true;
+}
+
+function prepareContractForSession() {
+  if (state.setup.runMode === "license") {
+    state.logistics.contract = null;
+    dom.contractBrief.textContent = "货运合同: 驾照模式无货运";
+    return;
+  }
+
+  const hashSeed = Math.floor(Date.now() / 1000 / 3600);
+  const pick = CONTRACT_TEMPLATES[hashSeed % CONTRACT_TEMPLATES.length];
+  const routeDistance = track.totalLength * state.setup.totalLaps;
+  const deadlineSec = Math.round(routeDistance / 10.8 + 24 + state.setup.cargoLoad * 16);
+  const damageMultiplier = THREE.MathUtils.lerp(1.0, 1.34, state.setup.cargoLoad);
+
+  state.logistics.contract = {
+    id: pick.id,
+    name: pick.name,
+    routeDistance,
+    deadlineSec,
+    baseReward: pick.baseReward,
+    urgencyBonus: pick.urgencyBonus,
+    damageMultiplier,
+  };
+  state.logistics.deliveryDueSec = deadlineSec;
+  state.logistics.delivered = false;
+  state.logistics.payout = 0;
+
+  dom.contractBrief.textContent = `货运合同: ${pick.name} | 截止 ${deadlineSec}s | 基础 ¥${pick.baseReward}`;
+}
+
+function updateContractProgress() {
+  const contract = state.logistics.contract;
+  if (!contract || state.logistics.delivered || state.mode !== "racing") return;
+
+  const routeProgress = state.truck.deliveredDistance;
+  if (routeProgress < contract.routeDistance) return;
+
+  state.logistics.delivered = true;
+  const onTime = state.race.raceTime <= contract.deadlineSec;
+  const cleanFactor = THREE.MathUtils.clamp(state.score.cleanDrive / 100, 0.5, 1.15);
+  const collisionLoss = state.score.collisionPenaltyCount * 110 * contract.damageMultiplier;
+  const ruleLoss = state.score.rulePenalties * 55;
+  let payout = contract.baseReward * cleanFactor - collisionLoss - ruleLoss;
+  if (onTime) payout += contract.urgencyBonus;
+  payout = Math.max(0, Math.round(payout));
+
+  state.logistics.payout = payout;
+  state.logistics.wallet += payout;
+  state.logistics.completedContracts += 1;
+}
+
+function startRaceFromMenu() {
+  syncSetupFromControls({ applyTheme: true });
 
   saveSettingsFromControls();
+  prepareContractForSession();
 
   dom.menuOverlay.classList.remove("visible");
   dom.finishOverlay.classList.remove("visible");
@@ -960,6 +1243,11 @@ function resetRaceState() {
   state.truck.wheelSlip = 0;
   state.truck.steerInput = 0;
   state.truck.lateralG = 0;
+  state.truck.gear = 0;
+  state.truck.rpm = 850;
+  state.truck.trailerYaw = 0;
+  state.truck.jackknifeRisk = 0;
+  state.truck.deliveredDistance = 0;
 
   state.race.raceTime = 0;
   state.race.lap = 1;
@@ -977,6 +1265,9 @@ function resetRaceState() {
   state.score.gtPoints = 0;
   state.score.penalties = 0;
   state.score.rulePenalties = 0;
+  state.score.speedPenaltyCount = 0;
+  state.score.redPenaltyCount = 0;
+  state.score.collisionPenaltyCount = 0;
 
   state.assists.absActive = false;
   state.assists.tcsActive = false;
@@ -984,9 +1275,14 @@ function resetRaceState() {
   state.rules.currentLimit = 80;
   state.rules.overLimitTime = 0;
   state.rules.redLightViolations = 0;
+  state.rules.lastTrafficLightState = "green";
 
   state.ghost.recording = [];
   state.ghost.lapTimer = 0;
+  state.ghost.compareMode = false;
+
+  state.logistics.delivered = false;
+  state.logistics.payout = 0;
 
   setupLicenseState();
 
@@ -1026,18 +1322,42 @@ function resetRaceState() {
 }
 
 function setupLicenseState() {
+  const challenge = licenseDefinitions[state.setup.licenseType] ?? licenseDefinitions.a1_precision;
+
   state.license.active = state.mode === "license";
-  state.license.type = state.setup.licenseType;
-  state.license.timeLimit = licenseDefinitions[state.setup.licenseType].timeLimit;
+  state.license.key = state.setup.licenseType;
+  state.license.type = challenge.kind;
+  state.license.timeLimit = challenge.timeLimit;
   state.license.success = false;
   state.license.failed = false;
-  state.license.message = licenseDefinitions[state.setup.licenseType].desc;
+  state.license.message = challenge.desc;
   state.license.nextGate = 0;
   state.license.stopDone = false;
+  state.license.gateCount = challenge.gateCount ?? 4;
+
+  if (state.license.active) {
+    if (Number.isFinite(challenge.forceCargo)) {
+      state.setup.cargoLoad = challenge.forceCargo;
+      dom.cargo.value = String(challenge.forceCargo);
+    }
+    if (challenge.forceWeather) {
+      state.setup.weather = challenge.forceWeather;
+      dom.weather.value = challenge.forceWeather;
+    }
+    if (challenge.forceTime) {
+      state.setup.dayPhase = challenge.forceTime;
+      dom.time.value = challenge.forceTime;
+    }
+    applyWorldThemeFromSetup();
+  }
 
   licenseMarkers.root.visible = state.license.active;
-  for (const gate of licenseMarkers.gates) {
+  const gateCount = state.license.gateCount;
+  for (let i = 0; i < licenseMarkers.gates.length; i += 1) {
+    const gate = licenseMarkers.gates[i];
     gate.passed = false;
+    gate.leftPole.visible = i < gateCount;
+    gate.rightPole.visible = i < gateCount;
     gate.leftPole.material.color.setHex(0x69f6aa);
     gate.rightPole.material.color.setHex(0xffc36e);
   }
@@ -1049,7 +1369,8 @@ function setupLicenseState() {
 function buildSectorTargets() {
   const loadFactor = THREE.MathUtils.lerp(0.96, 1.11, state.setup.cargoLoad);
   const powerFactor = THREE.MathUtils.clamp(1.14 - state.setup.powerMap * 0.2, 0.94, 1.12);
-  return [16.5, 17.2, 17.8].map((s) => s * loadFactor * powerFactor);
+  const weatherFactor = state.setup.weather === "rain" ? 1.08 : state.setup.weather === "fog" ? 1.05 : 1.0;
+  return [16.5, 17.2, 17.8].map((s) => s * loadFactor * powerFactor * weatherFactor);
 }
 
 function resetTruckToTrack() {
@@ -1064,58 +1385,84 @@ function updatePhysics(dt) {
   const left = state.keys.has("a") || state.keys.has("arrowleft") ? 1 : 0;
   const right = state.keys.has("d") || state.keys.has("arrowright") ? 1 : 0;
   const steerInput = right - left;
+  const maxSpeed = THREE.MathUtils.lerp(33, 44, (state.setup.powerMap - 0.88) / 0.24);
+  const weatherGrip = state.setup.weather === "rain" ? 0.8 : state.setup.weather === "fog" ? 0.9 : 1.0;
+  const cargoMassFactor = THREE.MathUtils.lerp(0.9, 0.63, state.setup.cargoLoad);
+  const drag = 0.014 + state.setup.cargoLoad * 0.011;
+  const rollingResistance = 1.05 + state.setup.cargoLoad * 1.1;
 
-  const maxSpeed = THREE.MathUtils.lerp(34, 41, state.setup.powerMap - 0.88);
-  const cargoMassFactor = THREE.MathUtils.lerp(0.86, 0.66, state.setup.cargoLoad);
-  const engineForce = 15.6 * state.setup.powerMap * cargoMassFactor;
-  const baseBrakeForce = (24.5 + state.setup.brakeBias * 5.2) * THREE.MathUtils.lerp(1.06, 0.72, state.setup.cargoLoad);
-  const drag = 0.016 + state.setup.cargoLoad * 0.01;
+  const gearRatios = [0, 4.8, 3.4, 2.5, 1.85, 1.32, 0.96];
+  const finalDrive = 3.6;
+  const wheelRadius = 0.48;
+  const wheelCircumference = Math.PI * 2 * wheelRadius;
+
+  let gear = state.truck.gear || 1;
+  const speedKmh = state.truck.speed * 3.6;
+  if (speedKmh > 92 && gear < 6) gear += 1;
+  if (speedKmh < 16 && gear > 1) gear -= 1;
+  if (speedKmh < 2 && throttle < 0.1) gear = 0;
+  if (throttle > 0.1 && gear === 0) gear = 1;
+  state.truck.gear = gear;
+
+  const ratio = gearRatios[Math.max(gear, 1)];
+  const wheelRpm = (state.truck.speed / wheelCircumference) * 60;
+  const drivelineRpm = wheelRpm * ratio * finalDrive;
+  const rpm = THREE.MathUtils.clamp(820 + drivelineRpm * 0.3 + throttle * 680, 780, 2600);
+  state.truck.rpm = rpm;
+
+  const torqueCurve = 0.82 + 0.45 * Math.sin(THREE.MathUtils.clamp((rpm - 900) / 1800, 0, 1) * Math.PI);
+  const engineForce = throttle * 11.8 * ratio * finalDrive * torqueCurve * cargoMassFactor * state.setup.powerMap;
 
   const speedRatio = state.truck.speed / Math.max(maxSpeed, 0.1);
-  const steerCurve = THREE.MathUtils.lerp(1.0, 0.52, speedRatio * speedRatio);
-  const steerAuthority = THREE.MathUtils.lerp(7.5, 2.8, speedRatio) * steerCurve;
+  const steerCurve = THREE.MathUtils.lerp(1.1, 0.44, speedRatio * speedRatio);
+  const steerAuthority = THREE.MathUtils.lerp(8.2, 2.1, speedRatio) * steerCurve;
+  const centering = -state.truck.laneOffset * THREE.MathUtils.lerp(0.25, 0.95, speedRatio);
 
-  const lateralLoad = Math.abs(state.truck.laneVelocity) * 0.5 + Math.abs(steerInput) * speedRatio;
+  state.truck.steerInput = THREE.MathUtils.lerp(state.truck.steerInput, steerInput, 0.28);
+  state.truck.laneVelocity += state.truck.steerInput * steerAuthority * dt;
+  state.truck.laneVelocity += centering * dt;
+  state.truck.laneVelocity *= 1 - (3.7 + speedRatio * 2.3) * dt;
+  state.truck.laneOffset += state.truck.laneVelocity * dt;
+
+  const lateralLoad = Math.abs(state.truck.laneVelocity) * 0.56 + Math.abs(state.truck.steerInput) * speedRatio * 1.2;
   const tcAssist = state.setup.tcLevel / 6;
-  const tcThreshold = THREE.MathUtils.lerp(0.35, 0.9, tcAssist);
-  let tractionMultiplier = 1;
+  const tcThreshold = THREE.MathUtils.lerp(0.3, 0.95, tcAssist) * weatherGrip;
+  let tractionMultiplier = weatherGrip;
   state.assists.tcsActive = false;
-
   if (throttle > 0 && lateralLoad > tcThreshold) {
-    const intervention = THREE.MathUtils.clamp((lateralLoad - tcThreshold) * 0.9, 0, 0.45);
+    const intervention = THREE.MathUtils.clamp((lateralLoad - tcThreshold) * 0.9, 0, 0.52);
     tractionMultiplier -= intervention;
     state.assists.tcsActive = tcAssist > 0;
   }
 
-  const slipEstimate = braking * speedRatio * (1 + Math.abs(steerInput) * 0.45);
-  state.truck.wheelSlip = THREE.MathUtils.lerp(state.truck.wheelSlip, slipEstimate, 0.25);
+  const brakeBase = (24.5 + state.setup.brakeBias * 5.2) * THREE.MathUtils.lerp(1.06, 0.68, state.setup.cargoLoad);
+  const slipEstimate = braking * speedRatio * (1 + Math.abs(state.truck.steerInput) * 0.5) * (1 / weatherGrip);
+  state.truck.wheelSlip = THREE.MathUtils.lerp(state.truck.wheelSlip, slipEstimate, 0.35);
 
-  let brakeForce = baseBrakeForce;
+  let brakeForce = braking * brakeBase;
   state.assists.absActive = false;
-  if (state.truck.wheelSlip > 0.62 && braking > 0 && state.truck.speed > 8) {
-    const absPulse = 0.58 + Math.sin(state.meta.worldTime * 24) * 0.08;
+  if (state.truck.wheelSlip > 0.56 && braking > 0 && state.truck.speed > 7.5) {
+    const absPulse = 0.6 + Math.sin(state.meta.worldTime * 24) * 0.1;
     brakeForce *= absPulse;
     state.assists.absActive = true;
   }
 
-  const acceleration =
-    throttle * engineForce * THREE.MathUtils.clamp(tractionMultiplier, 0.52, 1) -
-    braking * brakeForce -
-    drag * state.truck.speed * state.truck.speed -
-    1.2;
-
+  const acceleration = engineForce * THREE.MathUtils.clamp(tractionMultiplier, 0.42, 1) - brakeForce - drag * state.truck.speed * state.truck.speed - rollingResistance;
   state.truck.speed = THREE.MathUtils.clamp(state.truck.speed + acceleration * dt, 0, maxSpeed);
 
-  state.truck.laneVelocity += steerInput * steerAuthority * dt;
-  state.truck.laneVelocity *= 1 - (4.1 + speedRatio * 1.8) * dt;
-  state.truck.laneOffset += state.truck.laneVelocity * dt;
-  state.truck.steerInput = steerInput;
-  state.truck.lateralG = Math.abs(state.truck.laneVelocity) * (0.6 + speedRatio * 0.8);
+  state.truck.lateralG = Math.abs(state.truck.laneVelocity) * (0.65 + speedRatio * 0.9);
+  state.truck.trailerYaw = THREE.MathUtils.lerp(state.truck.trailerYaw, state.truck.steerInput * speedRatio * 0.52, 0.12);
+  state.truck.jackknifeRisk = THREE.MathUtils.clamp(Math.abs(state.truck.trailerYaw) * 1.6 + state.truck.wheelSlip * 0.45, 0, 1.2);
+
+  if (state.truck.jackknifeRisk > 0.92 && state.truck.speed > 12) {
+    state.score.cleanDrive = Math.max(0, state.score.cleanDrive - dt * 14);
+    state.truck.speed *= 1 - dt * 1.4;
+  }
 
   const roadEdge = ROAD_WIDTH * 0.5 - 0.95;
   if (Math.abs(state.truck.laneOffset) > roadEdge) {
     state.score.cleanDrive = Math.max(0, state.score.cleanDrive - dt * 11);
-    state.truck.speed *= 1 - dt * 0.9;
+    state.truck.speed *= 1 - dt * 0.95;
     state.truck.laneOffset = THREE.MathUtils.clamp(state.truck.laneOffset, -roadEdge - 1.4, roadEdge + 1.4);
   }
 
@@ -1127,12 +1474,10 @@ function updatePhysics(dt) {
     state.score.gtPoints += state.truck.speed * dt * 1.04;
   }
 
-  if (state.truck.speed > state.truck.topSpeedKmh / 3.6) {
-    state.truck.topSpeedKmh = state.truck.speed * 3.6;
-  }
-
+  if (state.truck.speed > state.truck.topSpeedKmh / 3.6) state.truck.topSpeedKmh = state.truck.speed * 3.6;
   state.score.cleanDrive = Math.min(100, state.score.cleanDrive + dt * 0.45);
   state.truck.distance += state.truck.speed * dt;
+  state.truck.deliveredDistance += state.truck.speed * dt;
 }
 
 function updateTruckTransform(dt) {
@@ -1147,6 +1492,7 @@ function updateTruckTransform(dt) {
   const wheelSpin = state.truck.speed * dt / 0.48;
   for (const wheel of truck.wheels) wheel.rotation.x -= wheelSpin;
   truck.parts.steeringWheel.rotation.y = state.truck.steerInput * -0.45;
+  truck.parts.trailer.rotation.y = state.truck.trailerYaw * -0.35;
 
   updateTruckVisibility();
   updateCamera(frame);
@@ -1190,16 +1536,28 @@ function updateTruckVisibility() {
 function updateCamera(frame) {
   const target = getCameraTargets(frame);
   const cfg = CAMERA_PRESETS[state.cameraMode];
+  const speedRatio = THREE.MathUtils.clamp((state.truck.speed * 3.6) / 120, 0, 1);
+  const shakeAmount = cfg.shake * speedRatio * (0.35 + state.truck.lateralG * 0.4);
+  const shakeX = Math.sin(state.meta.worldTime * 19.5) * shakeAmount;
+  const shakeY = Math.cos(state.meta.worldTime * 24.2) * shakeAmount * 0.7;
+  const shakeZ = Math.sin(state.meta.worldTime * 12.1) * shakeAmount * 0.35;
+
+  const compareOffset = tempVecA.set(0, 0, 0);
+  if (state.ghost.compareMode && ghostTruck.group.visible && state.cameraMode === 3) {
+    compareOffset.copy(frame.side).multiplyScalar(3.5);
+  }
 
   cameraRig.pos.lerp(target.position, cfg.posLerp);
   cameraRig.look.lerp(target.lookAt, cfg.lookLerp);
 
-  camera.position.copy(cameraRig.pos);
+  camera.position.copy(cameraRig.pos).add(compareOffset).add(tempVecB.set(shakeX, shakeY, shakeZ));
   camera.up.copy(frame.up);
+  camera.rotateZ(state.truck.steerInput * cfg.roll * speedRatio);
   camera.lookAt(cameraRig.look);
 
-  if (Math.abs(camera.fov - cfg.fov) > 0.05 || Math.abs(camera.near - cfg.near) > 0.001) {
-    camera.fov = cfg.fov;
+  const dynamicFov = cfg.fov + speedRatio * 10 * cfg.speedZoom;
+  if (Math.abs(camera.fov - dynamicFov) > 0.05 || Math.abs(camera.near - cfg.near) > 0.001) {
+    camera.fov = dynamicFov;
     camera.near = cfg.near;
     camera.updateProjectionMatrix();
   }
@@ -1311,6 +1669,7 @@ function updateTraffic(dt, instant = false) {
         vehicle.hitCooldown = 1.1;
         state.truck.speed *= 0.55;
         state.truck.collisions += 1;
+        state.score.collisionPenaltyCount += 1;
         state.score.cleanDrive = Math.max(0, state.score.cleanDrive - 14);
         state.score.penalties += 45;
       }
@@ -1340,6 +1699,7 @@ function updateRoadRules(dt, instant = false) {
     state.rules.overLimitTime = 1.2;
     state.score.penalties += 28;
     state.score.rulePenalties += 1;
+    state.score.speedPenaltyCount += 1;
     state.score.cleanDrive = Math.max(0, state.score.cleanDrive - 3.5);
   }
 
@@ -1356,6 +1716,7 @@ function updateRoadRules(dt, instant = false) {
         state.rules.redLightViolations += 1;
         state.score.penalties += 70;
         state.score.rulePenalties += 2;
+        state.score.redPenaltyCount += 1;
         state.score.cleanDrive = Math.max(0, state.score.cleanDrive - 10);
       }
       light.nextCrossDistance += track.totalLength;
@@ -1469,6 +1830,13 @@ function updateLicenseChallenge() {
   }
 
   if (state.license.type === "slalom") {
+    if (state.license.nextGate >= state.license.gateCount) {
+      state.license.success = true;
+      state.license.message = "蛇形门全部通过";
+      finishRace();
+      return;
+    }
+
     const gate = state.license.gates[state.license.nextGate];
     if (!gate) {
       state.license.success = true;
@@ -1545,12 +1913,13 @@ function finishRace() {
 
   if (wasLicense) {
     const medal = computeLicenseMedal();
-    dom.finishTitle.textContent = `${licenseDefinitions[state.license.type].name} | ${medal}`;
+    const licenseInfo = licenseDefinitions[state.license.key] ?? licenseDefinitions.a1_precision;
+    dom.finishTitle.textContent = `${licenseInfo.name} | ${medal}`;
     dom.finishSummary.textContent = state.license.success
       ? `${state.license.message} | Time ${formatTime(state.race.raceTime)} | Rule Penalty ${state.score.rulePenalties}`
       : `失败: ${state.license.message} | Time ${formatTime(state.race.raceTime)}`;
 
-    persistedStats.licenseMedals[state.license.type] = betterMedal(persistedStats.licenseMedals[state.license.type] ?? "-", medal);
+    persistedStats.licenseMedals[state.license.key] = betterMedal(persistedStats.licenseMedals[state.license.key] ?? "-", medal);
     persistStats();
     return;
   }
@@ -1558,9 +1927,16 @@ function finishRace() {
   const grade = computeGtGrade();
   const clean = Math.round(state.score.cleanDrive);
   const bestLapText = Number.isFinite(state.race.bestLap) ? formatTime(state.race.bestLap) : "--:--.---";
+  const contract = state.logistics.contract;
+
+  if (contract && !state.logistics.delivered) {
+    state.logistics.payout = 0;
+  }
 
   dom.finishTitle.textContent = `GT Rating ${grade}`;
-  dom.finishSummary.textContent = `Best Lap ${bestLapText} | Clean ${clean} | Collisions ${state.truck.collisions} | Rule ${state.score.rulePenalties} | Top ${Math.round(state.truck.topSpeedKmh)} km/h`;
+  dom.finishSummary.textContent = `Best Lap ${bestLapText} | Clean ${clean} | Collisions ${state.truck.collisions} | Rule ${state.score.rulePenalties} | 合同 ${state.logistics.delivered ? "完成" : "未完成"} | 本单 ¥${state.logistics.payout} | 钱包 ¥${state.logistics.wallet} | Top ${Math.round(state.truck.topSpeedKmh)} km/h`;
+
+  persistStats();
 }
 
 function computeGtGrade() {
@@ -1589,6 +1965,9 @@ function persistStats() {
   persistedStats.bestLap = state.race.bestLap;
   persistedStats.bestSectors = [...state.race.bestSectors];
   persistedStats.bestSectorMedals = [...state.race.bestSectorMedals];
+  persistedStats.licenseMedals = { ...persistedStats.licenseMedals };
+  persistedStats.wallet = state.logistics.wallet;
+  persistedStats.completedContracts = state.logistics.completedContracts;
 
   saveStorage(STORAGE_KEYS.stats, persistedStats);
 }
@@ -1606,19 +1985,38 @@ function updateHud() {
 
   if (state.mode === "license") {
     const remain = Math.max(0, state.license.timeLimit - state.race.raceTime);
-    dom.hudSector.textContent = `${licenseDefinitions[state.license.type].name} | ${remain.toFixed(1)}s`;
+    const licenseInfo = licenseDefinitions[state.license.key] ?? licenseDefinitions.a1_precision;
+    dom.hudSector.textContent = `${licenseInfo.name} | ${remain.toFixed(1)}s`;
   } else {
     dom.hudSector.textContent = `SECTOR ${state.race.nextSectorIndex + 1}`;
   }
 
   dom.hudMedals.textContent = `MEDALS ${state.race.sectorMedals.join(" ")}`;
   dom.hudSpeed.textContent = Math.round(state.truck.speed * 3.6).toString();
+  const gearText = state.truck.gear === 0 ? "N" : String(state.truck.gear);
+  dom.hudGear.textContent = `${gearText} | ${Math.round(state.truck.rpm)} rpm`;
   dom.hudView.textContent = `VIEW ${state.cameraMode}`;
   dom.hudAssists.textContent = `ABS ${state.assists.absActive ? "ON" : "OFF"} | TCS ${state.assists.tcsActive ? "ON" : "OFF"}`;
+  dom.hudGhost.textContent = `GHOST ${state.ghost.enabled ? "ON" : "OFF"}${state.ghost.compareMode ? " | COMPARE" : ""}`;
   dom.hudClean.textContent = `Clean Drive ${Math.round(state.score.cleanDrive)}`;
   dom.hudScore.textContent = `GT Points ${Math.max(0, Math.round(state.score.gtPoints - state.score.penalties))}`;
-  dom.hudSetup.textContent = `TCS ${state.setup.tcLevel} | ${state.setup.powerMap >= 1.1 ? "RACE" : state.setup.powerMap >= 1 ? "SPORT" : "ECO"}`;
+  dom.hudSetup.textContent = `TCS ${state.setup.tcLevel} | ${state.setup.powerMap >= 1.1 ? "RACE" : state.setup.powerMap >= 1 ? "SPORT" : "ECO"} | ${state.setup.weather.toUpperCase()} | ${state.setup.dayPhase.toUpperCase()}`;
   dom.hudRule.textContent = `${limitText} | ${lightText}`;
+  dom.hudPenalty.textContent = `Penalty SPD${state.score.speedPenaltyCount} RED${state.score.redPenaltyCount} COL${state.score.collisionPenaltyCount}`;
+  if (state.mode === "license") {
+    dom.hudContract.textContent = "Contract --";
+  } else {
+    const contract = state.logistics.contract;
+    if (!contract) {
+      dom.hudContract.textContent = "Contract --";
+    } else if (state.logistics.delivered) {
+      dom.hudContract.textContent = `Contract ${contract.name} 完成 +¥${state.logistics.payout}`;
+    } else {
+      const progress = THREE.MathUtils.clamp(state.truck.deliveredDistance / contract.routeDistance, 0, 1);
+      const remain = Math.max(0, contract.deadlineSec - state.race.raceTime);
+      dom.hudContract.textContent = `Contract ${contract.name} ${Math.round(progress * 100)}% | T-${Math.ceil(remain)}s`;
+    }
+  }
 }
 
 function updateDailyChallengeText() {
@@ -1680,8 +2078,20 @@ function toggleFullscreen() {
 }
 
 function loop() {
-  const dt = Math.min(clock.getDelta(), 0.05);
-  step(dt);
+  const dt = Math.min(clock.getDelta(), 0.1);
+  state.performance.accumulator += dt;
+
+  let subSteps = 0;
+  while (state.performance.accumulator >= state.performance.fixedStep && subSteps < state.performance.maxSubSteps) {
+    step(state.performance.fixedStep);
+    state.performance.accumulator -= state.performance.fixedStep;
+    subSteps += 1;
+  }
+
+  if (subSteps === state.performance.maxSubSteps) {
+    state.performance.accumulator = 0;
+  }
+
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
@@ -1697,9 +2107,11 @@ function step(dt) {
     updateTiming(dt);
     updateLicenseChallenge();
     updateRoadRules(dt);
+    updateContractProgress();
     updateDailyProgress();
   }
 
+  updateRainSystem(dt);
   updateRoadMeshes(state.truck.distance);
   updateTraffic(dt);
   updateTruckTransform(dt);
@@ -1709,8 +2121,8 @@ function step(dt) {
 }
 
 window.advanceTime = (ms) => {
-  const steps = Math.max(1, Math.round(ms / (1000 / 60)));
-  const dt = (ms / 1000) / steps;
+  const dt = state.performance.fixedStep;
+  const steps = Math.max(1, Math.round((ms / 1000) / dt));
   for (let i = 0; i < steps; i += 1) {
     step(dt);
   }
@@ -1743,8 +2155,11 @@ window.render_game_to_text = () => {
       speedKmh: Number((state.truck.speed * 3.6).toFixed(1)),
       distanceM: Number(state.truck.distance.toFixed(1)),
       laneOffsetM: Number(state.truck.laneOffset.toFixed(2)),
+      gear: state.truck.gear,
+      rpm: Math.round(state.truck.rpm),
       collisions: state.truck.collisions,
       wheelSlip: Number(state.truck.wheelSlip.toFixed(2)),
+      jackknifeRisk: Number(state.truck.jackknifeRisk.toFixed(2)),
     },
     assists: {
       abs: state.assists.absActive,
@@ -1759,6 +2174,11 @@ window.render_game_to_text = () => {
       cleanDrive: Math.round(state.score.cleanDrive),
       points: Math.max(0, Math.round(state.score.gtPoints - state.score.penalties)),
       topSpeedKmh: Math.round(state.truck.topSpeedKmh),
+      penalties: {
+        speed: state.score.speedPenaltyCount,
+        red: state.score.redPenaltyCount,
+        collision: state.score.collisionPenaltyCount,
+      },
     },
     license: {
       active: state.license.active,
@@ -1777,6 +2197,19 @@ window.render_game_to_text = () => {
     ghost: {
       hasBestRun: Boolean(state.ghost.bestRun),
       visible: ghostTruck.group.visible,
+      compareMode: state.ghost.compareMode,
+    },
+    contract: {
+      active: Boolean(state.logistics.contract),
+      delivered: state.logistics.delivered,
+      payout: state.logistics.payout,
+      wallet: state.logistics.wallet,
+      completedContracts: state.logistics.completedContracts,
+    },
+    world: {
+      city: state.setup.city,
+      weather: state.setup.weather,
+      dayPhase: state.setup.dayPhase,
     },
     traffic: nearbyTraffic,
   });
