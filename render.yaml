@@ -1,0 +1,7 @@
+services:
+  - type: static
+    name: eurotruck-gt5-fusion
+    env: static
+    plan: free
+    staticPublishPath: .
+    pullRequestPreviewsEnabled: false

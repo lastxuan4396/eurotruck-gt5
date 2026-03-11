@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Euro Truck GT5 Fusion</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <canvas id="game-canvas" aria-label="Truck driving game canvas"></canvas>
+
+      <section id="menu-overlay" class="overlay visible" aria-live="polite">
+        <div class="panel">
+          <p class="eyebrow">Truck Sim x GT DNA</p>
+          <h1>Euro Truck GT5 Fusion</h1>
+          <p class="subtitle">高速巡航 + 精准走线 + 分段计时，体验重卡驾驶与 GT 风格融合。</p>
+
+          <div class="grid-form">
+            <label>
+              圈数
+              <select id="laps-select">
+                <option value="2">2 圈</option>
+                <option value="3" selected>3 圈</option>
+                <option value="4">4 圈</option>
+              </select>
+            </label>
+            <label>
+              动力映射
+              <select id="power-select">
+                <option value="0.88">Eco</option>
+                <option value="1.0" selected>Sport</option>
+                <option value="1.12">Race</option>
+              </select>
+            </label>
+            <label>
+              牵引力控制 TCS
+              <select id="tc-select">
+                <option value="0">0 (关闭)</option>
+                <option value="2">2</option>
+                <option value="4" selected>4</option>
+                <option value="6">6</option>
+              </select>
+            </label>
+            <label>
+              刹车偏置
+              <select id="brake-select">
+                <option value="-0.15">后偏</option>
+                <option value="0" selected>中性</option>
+                <option value="0.15">前偏</option>
+              </select>
+            </label>
+          </div>
+
+          <button id="start-btn" class="button-primary">开始驾驶</button>
+
+          <div class="controls">
+            <h2>操作</h2>
+            <p>转向: A / D 或 ← / →</p>
+            <p>油门 / 刹车: W/S 或 ↑/↓</p>
+            <p>视角: 1 / 2 / 3 (或 C 循环)</p>
+            <p>暂停: Esc | 重置车辆: R</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="finish-overlay" class="overlay" aria-live="polite">
+        <div class="panel finish-panel">
+          <p class="eyebrow">Run Complete</p>
+          <h2 id="finish-title">成绩</h2>
+          <p id="finish-summary"></p>
+          <button id="restart-btn" class="button-primary">再跑一轮</button>
+        </div>
+      </section>
+
+      <div id="hud" class="hud hidden">
+        <div class="hud-left">
+          <p id="hud-lap">LAP 1 / 3</p>
+          <p id="hud-time">TIME 00:00.000</p>
+          <p id="hud-best">BEST --:--.---</p>
+          <p id="hud-sector">SECTOR 1</p>
+        </div>
+        <div class="hud-center">
+          <div class="speed-block">
+            <span id="hud-speed">0</span>
+            <small>km/h</small>
+          </div>
+          <p id="hud-view" class="pill">VIEW 1</p>
+        </div>
+        <div class="hud-right">
+          <p id="hud-clean">Clean Drive 100</p>
+          <p id="hud-score">GT Points 0</p>
+          <p id="hud-setup">TCS 4 | SPORT</p>
+        </div>
+      </div>
+
+      <p id="status-banner" class="status-banner hidden">PAUSED</p>
+    </main>
+
+    <script type="module" src="./game.js"></script>
+  </body>
+</html>
