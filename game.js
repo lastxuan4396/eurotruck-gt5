@@ -3,9 +3,50 @@ import * as THREE from "./vendor/three.module.js";
 const ROAD_WIDTH = 12;
 const ROAD_SEGMENT_LENGTH = 8;
 const ROAD_SEGMENT_COUNT = 240;
-const TRAFFIC_COUNT = 12;
+const TRAFFIC_POOL_SIZE = 18;
 const TRACK_SAMPLES = 1500;
+const TREE_INSTANCE_COUNT = 280;
+const LAMP_INSTANCE_COUNT = 64;
 const UP = new THREE.Vector3(0, 1, 0);
+
+const STORAGE_KEYS = {
+  settings: "eurotruck_gt5_settings_v2",
+  stats: "eurotruck_gt5_stats_v2",
+  ghost: "eurotruck_gt5_ghost_v2",
+};
+
+const CAMERA_PRESETS = {
+  1: { fov: 70, near: 0.03, posLerp: 0.26, lookLerp: 0.32 },
+  2: { fov: 76, near: 0.05, posLerp: 0.22, lookLerp: 0.26 },
+  3: { fov: 64, near: 0.2, posLerp: 0.12, lookLerp: 0.16 },
+};
+
+const MEDAL_ORDER = ["-", "B", "S", "G"];
+const LIGHT_CYCLE = { green: 11, yellow: 2, red: 8, total: 21 };
+
+const licenseDefinitions = {
+  precision: {
+    name: "A-1 精准刹停",
+    desc: "40 秒内在刹停区内停下",
+    timeLimit: 40,
+  },
+  slalom: {
+    name: "A-2 蛇形控车",
+    desc: "通过 4 个蛇形门",
+    timeLimit: 48,
+  },
+  clean: {
+    name: "A-3 清洁冲刺",
+    desc: "35 秒内完成 Sector 1 且无碰撞",
+    timeLimit: 35,
+  },
+};
+
+const dailyDefinitions = [
+  { id: "daily_clean_lap", text: "今日任务: 0 碰撞完成 1 圈", target: 1 },
+  { id: "daily_top_speed", text: "今日任务: 最高速达到 98 km/h", target: 98 },
+  { id: "daily_gt_points", text: "今日任务: 单局 GT Points 达到 520", target: 520 },
+];
 
 const dom = {
   canvas: document.querySelector("#game-canvas"),
@@ -13,10 +54,14 @@ const dom = {
   finishOverlay: document.querySelector("#finish-overlay"),
   startBtn: document.querySelector("#start-btn"),
   restartBtn: document.querySelector("#restart-btn"),
+  mode: document.querySelector("#mode-select"),
+  license: document.querySelector("#license-select"),
   laps: document.querySelector("#laps-select"),
+  cargo: document.querySelector("#cargo-select"),
   power: document.querySelector("#power-select"),
   tc: document.querySelector("#tc-select"),
   brake: document.querySelector("#brake-select"),
+  daily: document.querySelector("#daily-challenge"),
   hud: document.querySelector("#hud"),
   statusBanner: document.querySelector("#status-banner"),
   finishTitle: document.querySelector("#finish-title"),
@@ -25,12 +70,25 @@ const dom = {
   hudTime: document.querySelector("#hud-time"),
   hudBest: document.querySelector("#hud-best"),
   hudSector: document.querySelector("#hud-sector"),
+  hudMedals: document.querySelector("#hud-medals"),
   hudSpeed: document.querySelector("#hud-speed"),
   hudView: document.querySelector("#hud-view"),
+  hudAssists: document.querySelector("#hud-assists"),
   hudClean: document.querySelector("#hud-clean"),
   hudScore: document.querySelector("#hud-score"),
   hudSetup: document.querySelector("#hud-setup"),
+  hudRule: document.querySelector("#hud-rule"),
 };
+
+const persistedSettings = loadStorage(STORAGE_KEYS.settings, {});
+const persistedStats = loadStorage(STORAGE_KEYS.stats, {
+  bestLap: Infinity,
+  bestSectors: [Infinity, Infinity, Infinity],
+  bestSectorMedals: ["-", "-", "-"],
+  licenseMedals: {},
+  dailyDone: {},
+});
+const persistedGhost = loadStorage(STORAGE_KEYS.ghost, null);
 
 const state = {
   mode: "menu",
@@ -38,10 +96,13 @@ const state = {
   cameraMode: 1,
   keys: new Set(),
   setup: {
+    runMode: "race",
+    licenseType: "precision",
     totalLaps: 3,
     powerMap: 1,
     tcLevel: 4,
     brakeBias: 0,
+    cargoLoad: 0.55,
   },
   truck: {
     distance: 0,
@@ -50,24 +111,74 @@ const state = {
     laneVelocity: 0,
     topSpeedKmh: 0,
     collisions: 0,
+    wheelSlip: 0,
+    steerInput: 0,
+    lateralG: 0,
   },
   race: {
     raceTime: 0,
     lap: 1,
-    bestLap: Infinity,
+    bestLap: Number.isFinite(persistedStats.bestLap) ? persistedStats.bestLap : Infinity,
     lastLap: 0,
     lapStartTime: 0,
+    lapStartDistance: 0,
     sectorStartTime: 0,
     nextSectorIndex: 0,
     nextSectorDistance: 0,
-    bestSectors: [Infinity, Infinity, Infinity],
+    bestSectors: [...persistedStats.bestSectors],
+    sectorMedals: ["-", "-", "-"],
+    bestSectorMedals: [...persistedStats.bestSectorMedals],
+    sectorTargets: [16.5, 17.2, 17.8],
   },
   score: {
     cleanDrive: 100,
     gtPoints: 0,
     penalties: 0,
+    rulePenalties: 0,
+  },
+  assists: {
+    absActive: false,
+    tcsActive: false,
+  },
+  rules: {
+    currentLimit: 80,
+    overLimitTime: 0,
+    redLightViolations: 0,
+    lastTrafficLightState: "green",
+  },
+  ghost: {
+    recording: [],
+    bestRun: isValidGhost(persistedGhost) ? persistedGhost : null,
+    lapTimer: 0,
+    enabled: true,
+  },
+  license: {
+    active: false,
+    type: "precision",
+    timeLimit: 40,
+    success: false,
+    failed: false,
+    message: "",
+    nextGate: 0,
+    stopDone: false,
+    gates: [],
+    stopZone: { start: 0, end: 0 },
+  },
+  daily: {
+    ...buildDailyChallenge(),
+    completed: false,
+    progress: 0,
+  },
+  performance: {
+    trafficLodDistance: 170,
+  },
+  meta: {
+    worldTime: 0,
+    frame: 0,
   },
 };
+
+state.daily.completed = Boolean(persistedStats.dailyDone?.[state.daily.dateKey]?.includes(state.daily.id));
 
 const renderer = new THREE.WebGLRenderer({
   canvas: dom.canvas,
@@ -81,47 +192,58 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x95c3e8);
-scene.fog = new THREE.Fog(0x93c2e7, 170, 950);
+scene.fog = new THREE.Fog(0x93c2e7, 170, 980);
 
-const camera = new THREE.PerspectiveCamera(67, window.innerWidth / window.innerHeight, 0.1, 2600);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.03, 2600);
 const cameraRig = {
   pos: new THREE.Vector3(),
   look: new THREE.Vector3(),
 };
 
 const clock = new THREE.Clock();
-const tempVecA = new THREE.Vector3();
-const tempVecB = new THREE.Vector3();
 const tempMatrix = new THREE.Matrix4();
 const tempQuat = new THREE.Quaternion();
+const tempVecA = new THREE.Vector3();
+const tempVecB = new THREE.Vector3();
+const dummyObject = new THREE.Object3D();
 
 setupLighting();
 setupEnvironment();
 
 const track = buildTrack(TRACK_SAMPLES);
 const roadSegments = createRoadSegments();
-const racingLine = createRacingLine(88);
+const racingLine = createRacingLine(96);
 const truck = createTruck();
 scene.add(truck.group);
-const traffic = createTraffic(TRAFFIC_COUNT);
-const roadside = createRoadsideDecor(220);
-scene.add(roadside);
+const ghostTruck = createGhostTruck();
+scene.add(ghostTruck.group);
+const traffic = createTrafficPool(TRAFFIC_POOL_SIZE);
+const roadside = createRoadsideDecorInstanced(TREE_INSTANCE_COUNT, LAMP_INSTANCE_COUNT);
+scene.add(roadside.root);
+const roadRules = createRoadRulesObjects();
+scene.add(roadRules.root);
+const licenseMarkers = createLicenseMarkers();
+scene.add(licenseMarkers.root);
 
+applySettingsToControls();
+updateDailyChallengeText();
 bindEvents();
 resetRaceState();
 updateRoadMeshes(state.truck.distance);
 updateTraffic(0, true);
+updateRoadRules(0, true);
 updateTruckTransform(0);
+updateGhostTransform(0, true);
 updateRacingLine();
 updateHud();
 
 requestAnimationFrame(loop);
 
 function setupLighting() {
-  const hemi = new THREE.HemisphereLight(0xdff3ff, 0x4d6f4a, 1.05);
+  const hemi = new THREE.HemisphereLight(0xdff3ff, 0x4d6f4a, 1.08);
   scene.add(hemi);
 
-  const sun = new THREE.DirectionalLight(0xfff1cf, 1.15);
+  const sun = new THREE.DirectionalLight(0xfff1cf, 1.12);
   sun.position.set(220, 280, -140);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -134,7 +256,7 @@ function setupLighting() {
 
 function setupEnvironment() {
   const ground = new THREE.Mesh(
-    new THREE.CircleGeometry(1100, 120),
+    new THREE.CircleGeometry(1150, 140),
     new THREE.MeshStandardMaterial({ color: 0x5d8f58, roughness: 1 })
   );
   ground.rotation.x = -Math.PI / 2;
@@ -214,10 +336,7 @@ function sampleTrackByDistance(distance) {
   const localT = (wrappedDistance - track.cumulative[low]) / segmentLength;
 
   const position = track.points[low].clone().lerp(track.points[low + 1], localT);
-  const tangent = track.tangents[low]
-    .clone()
-    .lerp(track.tangents[(low + 1) % track.samples], localT)
-    .normalize();
+  const tangent = track.tangents[low].clone().lerp(track.tangents[(low + 1) % track.samples], localT).normalize();
 
   const side = tempVecA.crossVectors(UP, tangent).clone();
   if (side.lengthSq() < 0.0001) {
@@ -233,8 +352,8 @@ function sampleTrackByDistance(distance) {
     tangent,
     side,
     up,
-    progress: wrappedDistance / track.totalLength,
     wrappedDistance,
+    progress: wrappedDistance / track.totalLength,
   };
 }
 
@@ -305,6 +424,14 @@ function createTruck() {
   chassis.receiveShadow = true;
   group.add(chassis);
 
+  const hood = new THREE.Mesh(
+    new THREE.BoxGeometry(2.2, 0.7, 1.4),
+    new THREE.MeshStandardMaterial({ color: 0x1f5ea5, roughness: 0.5, metalness: 0.3 })
+  );
+  hood.position.set(0, 1.75, 3.05);
+  hood.castShadow = true;
+  group.add(hood);
+
   const cabin = new THREE.Mesh(
     new THREE.BoxGeometry(2.4, 1.8, 2.4),
     new THREE.MeshStandardMaterial({ color: 0x2f8be2, roughness: 0.45, metalness: 0.25 })
@@ -328,6 +455,21 @@ function createTruck() {
   trailer.castShadow = true;
   trailer.receiveShadow = true;
   group.add(trailer);
+
+  const dash = new THREE.Mesh(
+    new THREE.BoxGeometry(1.9, 0.42, 0.55),
+    new THREE.MeshStandardMaterial({ color: 0x1a1e24, roughness: 0.9 })
+  );
+  dash.position.set(0, 2.0, 2.86);
+  group.add(dash);
+
+  const steeringWheel = new THREE.Mesh(
+    new THREE.TorusGeometry(0.28, 0.045, 10, 24),
+    new THREE.MeshStandardMaterial({ color: 0x111317, roughness: 0.82, metalness: 0.25 })
+  );
+  steeringWheel.position.set(-0.44, 1.9, 2.56);
+  steeringWheel.rotation.set(0.8, 0, 0.3);
+  group.add(steeringWheel);
 
   const wheelGeom = new THREE.CylinderGeometry(0.48, 0.48, 0.36, 18);
   const wheelMat = new THREE.MeshStandardMaterial({ color: 0x1d1f24, roughness: 0.92, metalness: 0.1 });
@@ -356,15 +498,40 @@ function createTruck() {
     wheels,
     parts: {
       chassis,
+      hood,
       cabin,
       windshield,
       trailer,
+      dash,
+      steeringWheel,
     },
   };
 }
 
-function createTraffic(count) {
+function createGhostTruck() {
+  const group = new THREE.Group();
+
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(2.3, 1.0, 5.4),
+    new THREE.MeshBasicMaterial({ color: 0x49d6f3, transparent: true, opacity: 0.36 })
+  );
+  body.position.y = 1.45;
+  group.add(body);
+
+  const head = new THREE.Mesh(
+    new THREE.BoxGeometry(2.1, 1.2, 1.8),
+    new THREE.MeshBasicMaterial({ color: 0x7eeeff, transparent: true, opacity: 0.28 })
+  );
+  head.position.set(0, 2.05, 2.1);
+  group.add(head);
+
+  group.visible = false;
+  return { group };
+}
+
+function createTrafficPool(count) {
   const vehicles = [];
+
   for (let i = 0; i < count; i += 1) {
     const hue = (i * 0.13) % 1;
     const color = new THREE.Color().setHSL(hue, 0.55, 0.46);
@@ -376,58 +543,271 @@ function createTraffic(count) {
     body.position.y = 1.08;
     body.castShadow = true;
 
-    const car = new THREE.Group();
-    car.add(body);
-
     const roof = new THREE.Mesh(
       new THREE.BoxGeometry(1.6, 0.65, 2),
       new THREE.MeshStandardMaterial({ color: 0x11161f, roughness: 0.9 })
     );
     roof.position.set(0, 1.78, 0.35);
-    car.add(roof);
 
-    scene.add(car);
+    const mesh = new THREE.Group();
+    mesh.add(body);
+    mesh.add(roof);
+    scene.add(mesh);
 
     vehicles.push({
-      mesh: car,
+      mesh,
       distance: Math.random() * track.totalLength,
-      speed: 20 + Math.random() * 10,
+      speed: 19 + Math.random() * 12,
       lane: Math.random() > 0.5 ? -2.6 : 2.6,
       targetLane: Math.random() > 0.5 ? -2.6 : 2.6,
       hitCooldown: 0,
+      active: true,
     });
   }
+
   return vehicles;
 }
 
-function createRoadsideDecor(count) {
+function createRoadsideDecorInstanced(treeCount, lampCount) {
   const root = new THREE.Group();
 
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x66492f, roughness: 1 });
-  const leafMat = new THREE.MeshStandardMaterial({ color: 0x4a7c41, roughness: 0.92 });
+  const trunkMesh = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.28, 0.42, 2.7, 7),
+    new THREE.MeshStandardMaterial({ color: 0x66492f, roughness: 1 }),
+    treeCount
+  );
+  const crownMesh = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(1.58, 8, 8),
+    new THREE.MeshStandardMaterial({ color: 0x4a7c41, roughness: 0.92 }),
+    treeCount
+  );
 
-  for (let i = 0; i < count; i += 1) {
-    const randomDistance = (i / count) * track.totalLength + Math.random() * 12;
+  trunkMesh.castShadow = true;
+  crownMesh.castShadow = true;
+  trunkMesh.receiveShadow = true;
+  crownMesh.receiveShadow = true;
+
+  for (let i = 0; i < treeCount; i += 1) {
+    const randomDistance = (i / treeCount) * track.totalLength + Math.random() * 14;
     const sideSign = Math.random() > 0.5 ? -1 : 1;
-    const extraOffset = 13 + Math.random() * 21;
+    const extraOffset = 13 + Math.random() * 24;
 
     const frame = sampleTrackByDistance(randomDistance);
+    const trunkPos = frame.position.clone().addScaledVector(frame.side, sideSign * extraOffset).addScaledVector(frame.up, 1.3);
 
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.42, 2.7, 7), trunkMat);
-    trunk.castShadow = true;
-    trunk.position.copy(frame.position)
-      .addScaledVector(frame.side, sideSign * extraOffset)
-      .addScaledVector(frame.up, 1.3);
+    dummyObject.position.copy(trunkPos);
+    dummyObject.scale.set(1, 1, 1);
+    dummyObject.rotation.set(0, Math.random() * Math.PI * 2, 0);
+    dummyObject.updateMatrix();
+    trunkMesh.setMatrixAt(i, dummyObject.matrix);
 
-    const leaf = new THREE.Mesh(new THREE.SphereGeometry(1.6 + Math.random() * 0.6, 8, 8), leafMat);
-    leaf.castShadow = true;
-    leaf.position.copy(trunk.position).addScaledVector(frame.up, 1.7);
-
-    root.add(trunk);
-    root.add(leaf);
+    dummyObject.position.copy(trunkPos).addScaledVector(frame.up, 1.7);
+    const scale = 1 + Math.random() * 0.36;
+    dummyObject.scale.set(scale, scale, scale);
+    dummyObject.rotation.set(0, 0, 0);
+    dummyObject.updateMatrix();
+    crownMesh.setMatrixAt(i, dummyObject.matrix);
   }
 
-  return root;
+  trunkMesh.instanceMatrix.needsUpdate = true;
+  crownMesh.instanceMatrix.needsUpdate = true;
+
+  const lampPole = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.07, 0.09, 4.4, 6),
+    new THREE.MeshStandardMaterial({ color: 0x8494a0, roughness: 0.52, metalness: 0.62 }),
+    lampCount
+  );
+  const lampHead = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(0.52, 0.26, 0.4),
+    new THREE.MeshStandardMaterial({ color: 0xede9c9, roughness: 0.35, emissive: 0x342f1f, emissiveIntensity: 0.3 }),
+    lampCount
+  );
+
+  for (let i = 0; i < lampCount; i += 1) {
+    const d = (i / lampCount) * track.totalLength + 4;
+    const side = i % 2 === 0 ? -1 : 1;
+    const frame = sampleTrackByDistance(d);
+
+    const basePos = frame.position.clone().addScaledVector(frame.side, side * (ROAD_WIDTH * 0.5 + 2.2));
+
+    dummyObject.position.copy(basePos).addScaledVector(frame.up, 2.2);
+    tempMatrix.makeBasis(frame.side, frame.up, frame.tangent);
+    dummyObject.quaternion.setFromRotationMatrix(tempMatrix);
+    dummyObject.scale.set(1, 1, 1);
+    dummyObject.updateMatrix();
+    lampPole.setMatrixAt(i, dummyObject.matrix);
+
+    dummyObject.position.copy(basePos)
+      .addScaledVector(frame.up, 4.35)
+      .addScaledVector(frame.side, -side * 0.3);
+    dummyObject.quaternion.setFromRotationMatrix(tempMatrix);
+    dummyObject.updateMatrix();
+    lampHead.setMatrixAt(i, dummyObject.matrix);
+  }
+
+  lampPole.instanceMatrix.needsUpdate = true;
+  lampHead.instanceMatrix.needsUpdate = true;
+
+  root.add(trunkMesh, crownMesh, lampPole, lampHead);
+  return { root, trunkMesh, crownMesh, lampPole, lampHead };
+}
+
+function createRoadRulesObjects() {
+  const root = new THREE.Group();
+  const signs = [];
+  const lights = [];
+
+  const signSpecs = [
+    { distance: 60, limit: 80 },
+    { distance: 220, limit: 60 },
+    { distance: 430, limit: 100 },
+    { distance: 620, limit: 70 },
+    { distance: 810, limit: 90 },
+  ];
+
+  for (const spec of signSpecs) {
+    const frame = sampleTrackByDistance(spec.distance);
+    const side = Math.random() > 0.5 ? -1 : 1;
+    const sign = new THREE.Group();
+
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.06, 0.08, 2.5, 8),
+      new THREE.MeshStandardMaterial({ color: 0x8d9298, roughness: 0.6, metalness: 0.65 })
+    );
+    pole.position.y = 1.25;
+    sign.add(pole);
+
+    const plateColor = spec.limit <= 70 ? 0xffb6a8 : spec.limit >= 100 ? 0xa8ffce : 0xfff0ad;
+    const plate = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.54, 0.54, 0.12, 24),
+      new THREE.MeshStandardMaterial({ color: plateColor, roughness: 0.48, metalness: 0.1 })
+    );
+    plate.position.y = 2.52;
+    plate.rotation.x = Math.PI / 2;
+    sign.add(plate);
+
+    sign.position.copy(frame.position).addScaledVector(frame.side, side * (ROAD_WIDTH * 0.5 + 2.8));
+    sign.position.addScaledVector(frame.up, 0.04);
+    tempMatrix.makeBasis(frame.side, frame.up, frame.tangent);
+    sign.quaternion.setFromRotationMatrix(tempMatrix);
+
+    root.add(sign);
+    signs.push({
+      mesh: sign,
+      limit: spec.limit,
+      distance: spec.distance,
+      nextTriggerDistance: spec.distance,
+    });
+  }
+
+  const lightSpecs = [
+    { distance: 160, offset: 0 },
+    { distance: 520, offset: 7 },
+    { distance: 890, offset: 13 },
+  ];
+
+  for (const spec of lightSpecs) {
+    const frame = sampleTrackByDistance(spec.distance);
+    const side = Math.random() > 0.5 ? -1 : 1;
+
+    const group = new THREE.Group();
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.08, 5.2, 8),
+      new THREE.MeshStandardMaterial({ color: 0x70767f, roughness: 0.55, metalness: 0.62 })
+    );
+    pole.position.y = 2.6;
+    group.add(pole);
+
+    const head = new THREE.Mesh(
+      new THREE.BoxGeometry(0.58, 1.4, 0.48),
+      new THREE.MeshStandardMaterial({ color: 0x1d232a, roughness: 0.7 })
+    );
+    head.position.y = 4.65;
+    group.add(head);
+
+    const red = createLightBulb(0xff4a4a);
+    red.position.set(0, 5.1, 0.3);
+    const yellow = createLightBulb(0xffcc4a);
+    yellow.position.set(0, 4.7, 0.3);
+    const green = createLightBulb(0x59ff6c);
+    green.position.set(0, 4.3, 0.3);
+
+    group.add(red, yellow, green);
+
+    group.position.copy(frame.position).addScaledVector(frame.side, side * (ROAD_WIDTH * 0.5 + 3.6));
+    group.position.addScaledVector(frame.up, 0.04);
+    tempMatrix.makeBasis(frame.side, frame.up, frame.tangent);
+    group.quaternion.setFromRotationMatrix(tempMatrix);
+
+    root.add(group);
+
+    lights.push({
+      group,
+      bulbs: { red, yellow, green },
+      distance: spec.distance,
+      nextCrossDistance: spec.distance,
+      offset: spec.offset,
+      state: "green",
+    });
+  }
+
+  return { root, signs, lights };
+}
+
+function createLightBulb(color) {
+  return new THREE.Mesh(
+    new THREE.SphereGeometry(0.12, 12, 12),
+    new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 0.08,
+      roughness: 0.3,
+      metalness: 0.05,
+    })
+  );
+}
+
+function createLicenseMarkers() {
+  const root = new THREE.Group();
+  const gates = [];
+
+  const gateGeom = new THREE.BoxGeometry(0.2, 2, 0.2);
+  const gateMatGood = new THREE.MeshStandardMaterial({ color: 0x69f6aa, roughness: 0.4 });
+  const gateMatWarn = new THREE.MeshStandardMaterial({ color: 0xffc36e, roughness: 0.4 });
+
+  for (let i = 0; i < 4; i += 1) {
+    const d = 90 + i * 52;
+    const targetLane = i % 2 === 0 ? -2.8 : 2.8;
+
+    const frame = sampleTrackByDistance(d);
+    const center = frame.position.clone().addScaledVector(frame.side, targetLane);
+
+    const leftPole = new THREE.Mesh(gateGeom, gateMatGood);
+    leftPole.position.copy(center).addScaledVector(frame.side, -1.6).addScaledVector(frame.up, 1.0);
+
+    const rightPole = new THREE.Mesh(gateGeom, gateMatWarn);
+    rightPole.position.copy(center).addScaledVector(frame.side, 1.6).addScaledVector(frame.up, 1.0);
+
+    root.add(leftPole, rightPole);
+    gates.push({ distance: d, targetLane, leftPole, rightPole, passed: false });
+  }
+
+  const stopBox = new THREE.Mesh(
+    new THREE.BoxGeometry(4.6, 0.08, 8),
+    new THREE.MeshBasicMaterial({ color: 0x75d6ff, transparent: true, opacity: 0.35 })
+  );
+  const stopStart = 185;
+  const stopEnd = stopStart + 8;
+  const stopMid = (stopStart + stopEnd) * 0.5;
+  const stopFrame = sampleTrackByDistance(stopMid);
+
+  stopBox.position.copy(stopFrame.position).addScaledVector(stopFrame.up, 0.07);
+  tempMatrix.makeBasis(stopFrame.side, stopFrame.up, stopFrame.tangent);
+  stopBox.quaternion.setFromRotationMatrix(tempMatrix);
+  root.add(stopBox);
+
+  root.visible = false;
+  return { root, gates, stopZone: { start: stopStart, end: stopEnd }, stopBox };
 }
 
 function createRacingLine(pointCount) {
@@ -438,11 +818,7 @@ function createRacingLine(pointCount) {
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
 
-  const material = new THREE.LineBasicMaterial({
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.95,
-  });
+  const material = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.95 });
 
   const line = new THREE.Line(geometry, material);
   line.frustumCulled = false;
@@ -452,7 +828,7 @@ function createRacingLine(pointCount) {
 }
 
 function updateRacingLine() {
-  if (state.mode !== "racing") {
+  if (state.mode === "menu" || state.mode === "finished") {
     racingLine.line.visible = false;
     return;
   }
@@ -465,10 +841,7 @@ function updateRacingLine() {
     const frame = sampleTrackByDistance(lookDistance);
 
     const index = i * 3;
-    const markerPosition = frame.position
-      .clone()
-      .addScaledVector(frame.side, state.truck.laneOffset * 0.2)
-      .addScaledVector(frame.up, 0.22);
+    const markerPosition = frame.position.clone().addScaledVector(frame.side, state.truck.laneOffset * 0.18).addScaledVector(frame.up, 0.22);
 
     racingLine.positions[index] = markerPosition.x;
     racingLine.positions[index + 1] = markerPosition.y;
@@ -490,12 +863,8 @@ function updateRacingLine() {
 }
 
 function getRacingLineColor(speed, targetSpeed) {
-  if (speed < targetSpeed - 8) {
-    return new THREE.Color(0x4be37a);
-  }
-  if (speed <= targetSpeed + 8) {
-    return new THREE.Color(0xf9d55e);
-  }
+  if (speed < targetSpeed - 8) return new THREE.Color(0x4be37a);
+  if (speed <= targetSpeed + 8) return new THREE.Color(0xf9d55e);
   return new THREE.Color(0xff5d5d);
 }
 
@@ -511,48 +880,70 @@ function bindEvents() {
 
     state.keys.add(key);
 
-    if (key === "c") {
-      setCameraMode(state.cameraMode === 3 ? 1 : state.cameraMode + 1);
-    }
-    if (key === "1" || key === "2" || key === "3") {
-      setCameraMode(Number(key));
-    }
-    if (key === "escape" && state.mode === "racing") {
-      togglePause();
-    }
-    if (key === "r" && state.mode === "racing") {
-      resetTruckToTrack();
-    }
-    if (key === "f") {
-      toggleFullscreen();
-    }
+    if (key === "c") setCameraMode(state.cameraMode === 3 ? 1 : state.cameraMode + 1);
+    if (key === "1" || key === "2" || key === "3") setCameraMode(Number(key));
+    if (key === "escape" && isRunActive()) togglePause();
+    if (key === "r" && isRunActive()) resetTruckToTrack();
+    if (key === "f") toggleFullscreen();
   });
 
   window.addEventListener("keyup", (event) => {
     state.keys.delete(event.key.toLowerCase());
   });
 
+  dom.mode.addEventListener("change", () => {
+    saveSettingsFromControls();
+    updateDailyChallengeText();
+  });
+  dom.license.addEventListener("change", saveSettingsFromControls);
+  dom.laps.addEventListener("change", saveSettingsFromControls);
+  dom.power.addEventListener("change", saveSettingsFromControls);
+  dom.tc.addEventListener("change", saveSettingsFromControls);
+  dom.brake.addEventListener("change", saveSettingsFromControls);
+  dom.cargo.addEventListener("change", saveSettingsFromControls);
+
   dom.startBtn.addEventListener("click", startRaceFromMenu);
   dom.restartBtn.addEventListener("click", startRaceFromMenu);
 }
 
-function setCameraMode(mode) {
-  state.cameraMode = THREE.MathUtils.clamp(mode, 1, 3);
-  updateTruckVisibility();
-  updateHud();
+function applySettingsToControls() {
+  if (persistedSettings.mode) dom.mode.value = persistedSettings.mode;
+  if (persistedSettings.license) dom.license.value = persistedSettings.license;
+  if (persistedSettings.laps) dom.laps.value = persistedSettings.laps;
+  if (persistedSettings.power) dom.power.value = persistedSettings.power;
+  if (persistedSettings.tc) dom.tc.value = persistedSettings.tc;
+  if (persistedSettings.brake) dom.brake.value = persistedSettings.brake;
+  if (persistedSettings.cargo) dom.cargo.value = persistedSettings.cargo;
+}
+
+function saveSettingsFromControls() {
+  saveStorage(STORAGE_KEYS.settings, {
+    mode: dom.mode.value,
+    license: dom.license.value,
+    laps: dom.laps.value,
+    power: dom.power.value,
+    tc: dom.tc.value,
+    brake: dom.brake.value,
+    cargo: dom.cargo.value,
+  });
 }
 
 function startRaceFromMenu() {
+  state.setup.runMode = dom.mode.value;
+  state.setup.licenseType = dom.license.value;
   state.setup.totalLaps = Number(dom.laps.value);
   state.setup.powerMap = Number(dom.power.value);
   state.setup.tcLevel = Number(dom.tc.value);
   state.setup.brakeBias = Number(dom.brake.value);
+  state.setup.cargoLoad = Number(dom.cargo.value);
+
+  saveSettingsFromControls();
 
   dom.menuOverlay.classList.remove("visible");
   dom.finishOverlay.classList.remove("visible");
   dom.hud.classList.remove("hidden");
 
-  state.mode = "racing";
+  state.mode = state.setup.runMode === "license" ? "license" : "racing";
   state.paused = false;
   dom.statusBanner.classList.add("hidden");
 
@@ -566,43 +957,99 @@ function resetRaceState() {
   state.truck.laneVelocity = 0;
   state.truck.topSpeedKmh = 0;
   state.truck.collisions = 0;
+  state.truck.wheelSlip = 0;
+  state.truck.steerInput = 0;
+  state.truck.lateralG = 0;
 
   state.race.raceTime = 0;
   state.race.lap = 1;
-  state.race.bestLap = Infinity;
   state.race.lastLap = 0;
   state.race.lapStartTime = 0;
+  state.race.lapStartDistance = 0;
   state.race.sectorStartTime = 0;
   state.race.nextSectorIndex = 0;
   state.race.nextSectorDistance = track.totalLength / 3;
-  state.race.bestSectors = [Infinity, Infinity, Infinity];
+  state.race.sectorMedals = ["-", "-", "-"];
+
+  state.race.sectorTargets = buildSectorTargets();
 
   state.score.cleanDrive = 100;
   state.score.gtPoints = 0;
   state.score.penalties = 0;
+  state.score.rulePenalties = 0;
+
+  state.assists.absActive = false;
+  state.assists.tcsActive = false;
+
+  state.rules.currentLimit = 80;
+  state.rules.overLimitTime = 0;
+  state.rules.redLightViolations = 0;
+
+  state.ghost.recording = [];
+  state.ghost.lapTimer = 0;
+
+  setupLicenseState();
 
   for (let i = 0; i < traffic.length; i += 1) {
-    const vehicle = traffic[i];
-    vehicle.distance = 30 + i * (track.totalLength / TRAFFIC_COUNT) + Math.random() * 22;
-    vehicle.speed = 19 + Math.random() * 11;
-    vehicle.lane = Math.random() > 0.5 ? -2.6 : 2.6;
-    vehicle.targetLane = Math.random() > 0.5 ? -2.6 : 2.6;
-    vehicle.hitCooldown = 0;
+    const v = traffic[i];
+    v.distance = 30 + i * (track.totalLength / traffic.length) + Math.random() * 22;
+    v.speed = 18 + Math.random() * 12;
+    v.lane = Math.random() > 0.5 ? -2.6 : 2.6;
+    v.targetLane = Math.random() > 0.5 ? -2.6 : 2.6;
+    v.hitCooldown = 0;
+    v.active = true;
+    v.mesh.visible = true;
   }
 
-  const frame = sampleTrackByDistance(state.truck.distance);
-  const initialCamPos = frame.position.clone().addScaledVector(frame.up, 6).addScaledVector(frame.tangent, -12);
-  const initialCamLook = frame.position.clone().addScaledVector(frame.tangent, 16).addScaledVector(frame.up, 1.5);
-  cameraRig.pos.copy(initialCamPos);
-  cameraRig.look.copy(initialCamLook);
-  camera.position.copy(initialCamPos);
-  camera.lookAt(initialCamLook);
+  for (const sign of roadRules.signs) {
+    sign.nextTriggerDistance = sign.distance;
+  }
+  for (const light of roadRules.lights) {
+    light.nextCrossDistance = light.distance;
+  }
+
+  const frame = sampleTrackByDistance(0);
+  const camStart = frame.position.clone().addScaledVector(frame.up, 4.5).addScaledVector(frame.tangent, -9);
+  const camLook = frame.position.clone().addScaledVector(frame.tangent, 18).addScaledVector(frame.up, 1.4);
+  cameraRig.pos.copy(camStart);
+  cameraRig.look.copy(camLook);
+  camera.position.copy(camStart);
+  camera.lookAt(camLook);
 
   updateRoadMeshes(state.truck.distance);
-  updateTraffic(0, true);
   updateTruckTransform(0);
+  updateGhostTransform(0, true);
+  updateTraffic(0, true);
+  updateRoadRules(0, true);
   updateRacingLine();
   updateHud();
+}
+
+function setupLicenseState() {
+  state.license.active = state.mode === "license";
+  state.license.type = state.setup.licenseType;
+  state.license.timeLimit = licenseDefinitions[state.setup.licenseType].timeLimit;
+  state.license.success = false;
+  state.license.failed = false;
+  state.license.message = licenseDefinitions[state.setup.licenseType].desc;
+  state.license.nextGate = 0;
+  state.license.stopDone = false;
+
+  licenseMarkers.root.visible = state.license.active;
+  for (const gate of licenseMarkers.gates) {
+    gate.passed = false;
+    gate.leftPole.material.color.setHex(0x69f6aa);
+    gate.rightPole.material.color.setHex(0xffc36e);
+  }
+
+  state.license.gates = licenseMarkers.gates;
+  state.license.stopZone = { ...licenseMarkers.stopZone };
+}
+
+function buildSectorTargets() {
+  const loadFactor = THREE.MathUtils.lerp(0.96, 1.11, state.setup.cargoLoad);
+  const powerFactor = THREE.MathUtils.clamp(1.14 - state.setup.powerMap * 0.2, 0.94, 1.12);
+  return [16.5, 17.2, 17.8].map((s) => s * loadFactor * powerFactor);
 }
 
 function resetTruckToTrack() {
@@ -618,102 +1065,144 @@ function updatePhysics(dt) {
   const right = state.keys.has("d") || state.keys.has("arrowright") ? 1 : 0;
   const steerInput = right - left;
 
-  const maxSpeed = 39 * state.setup.powerMap;
-  const engineForce = 15 * state.setup.powerMap;
-  const brakeForce = 23 + state.setup.brakeBias * 5;
-  const drag = 0.018;
+  const maxSpeed = THREE.MathUtils.lerp(34, 41, state.setup.powerMap - 0.88);
+  const cargoMassFactor = THREE.MathUtils.lerp(0.86, 0.66, state.setup.cargoLoad);
+  const engineForce = 15.6 * state.setup.powerMap * cargoMassFactor;
+  const baseBrakeForce = (24.5 + state.setup.brakeBias * 5.2) * THREE.MathUtils.lerp(1.06, 0.72, state.setup.cargoLoad);
+  const drag = 0.016 + state.setup.cargoLoad * 0.01;
 
-  const lateralStress = Math.abs(steerInput) * (state.truck.speed / Math.max(maxSpeed, 0.1));
+  const speedRatio = state.truck.speed / Math.max(maxSpeed, 0.1);
+  const steerCurve = THREE.MathUtils.lerp(1.0, 0.52, speedRatio * speedRatio);
+  const steerAuthority = THREE.MathUtils.lerp(7.5, 2.8, speedRatio) * steerCurve;
+
+  const lateralLoad = Math.abs(state.truck.laneVelocity) * 0.5 + Math.abs(steerInput) * speedRatio;
   const tcAssist = state.setup.tcLevel / 6;
-  const tractionLimiter = 1 - lateralStress * 0.35 * (1 - tcAssist * 0.85);
+  const tcThreshold = THREE.MathUtils.lerp(0.35, 0.9, tcAssist);
+  let tractionMultiplier = 1;
+  state.assists.tcsActive = false;
+
+  if (throttle > 0 && lateralLoad > tcThreshold) {
+    const intervention = THREE.MathUtils.clamp((lateralLoad - tcThreshold) * 0.9, 0, 0.45);
+    tractionMultiplier -= intervention;
+    state.assists.tcsActive = tcAssist > 0;
+  }
+
+  const slipEstimate = braking * speedRatio * (1 + Math.abs(steerInput) * 0.45);
+  state.truck.wheelSlip = THREE.MathUtils.lerp(state.truck.wheelSlip, slipEstimate, 0.25);
+
+  let brakeForce = baseBrakeForce;
+  state.assists.absActive = false;
+  if (state.truck.wheelSlip > 0.62 && braking > 0 && state.truck.speed > 8) {
+    const absPulse = 0.58 + Math.sin(state.meta.worldTime * 24) * 0.08;
+    brakeForce *= absPulse;
+    state.assists.absActive = true;
+  }
 
   const acceleration =
-    throttle * engineForce * THREE.MathUtils.clamp(tractionLimiter, 0.55, 1) -
+    throttle * engineForce * THREE.MathUtils.clamp(tractionMultiplier, 0.52, 1) -
     braking * brakeForce -
     drag * state.truck.speed * state.truck.speed -
-    1.4;
+    1.2;
 
   state.truck.speed = THREE.MathUtils.clamp(state.truck.speed + acceleration * dt, 0, maxSpeed);
 
-  const steerAuthority = THREE.MathUtils.lerp(6.2, 3.1, state.truck.speed / maxSpeed);
   state.truck.laneVelocity += steerInput * steerAuthority * dt;
-  state.truck.laneVelocity *= 1 - 4.8 * dt;
+  state.truck.laneVelocity *= 1 - (4.1 + speedRatio * 1.8) * dt;
   state.truck.laneOffset += state.truck.laneVelocity * dt;
+  state.truck.steerInput = steerInput;
+  state.truck.lateralG = Math.abs(state.truck.laneVelocity) * (0.6 + speedRatio * 0.8);
 
   const roadEdge = ROAD_WIDTH * 0.5 - 0.95;
   if (Math.abs(state.truck.laneOffset) > roadEdge) {
-    state.score.cleanDrive = Math.max(0, state.score.cleanDrive - dt * 12);
+    state.score.cleanDrive = Math.max(0, state.score.cleanDrive - dt * 11);
     state.truck.speed *= 1 - dt * 0.9;
-    state.truck.laneOffset = THREE.MathUtils.clamp(state.truck.laneOffset, -roadEdge - 1.6, roadEdge + 1.6);
+    state.truck.laneOffset = THREE.MathUtils.clamp(state.truck.laneOffset, -roadEdge - 1.4, roadEdge + 1.4);
   }
 
-  if (steerInput !== 0 && state.truck.speed > maxSpeed * 0.6) {
-    state.score.cleanDrive = Math.max(0, state.score.cleanDrive - dt * 2.4 * Math.abs(steerInput));
+  if (steerInput !== 0 && state.truck.speed > maxSpeed * 0.58) {
+    state.score.cleanDrive = Math.max(0, state.score.cleanDrive - dt * 2.2 * Math.abs(steerInput));
   }
 
   if (throttle > 0 && Math.abs(state.truck.laneOffset) < roadEdge - 0.3) {
-    state.score.gtPoints += state.truck.speed * dt * 0.95;
+    state.score.gtPoints += state.truck.speed * dt * 1.04;
   }
 
   if (state.truck.speed > state.truck.topSpeedKmh / 3.6) {
     state.truck.topSpeedKmh = state.truck.speed * 3.6;
   }
 
-  state.score.cleanDrive = Math.min(100, state.score.cleanDrive + dt * 0.5);
-
+  state.score.cleanDrive = Math.min(100, state.score.cleanDrive + dt * 0.45);
   state.truck.distance += state.truck.speed * dt;
 }
 
 function updateTruckTransform(dt) {
   const frame = sampleTrackByDistance(state.truck.distance);
 
-  truck.group.position
-    .copy(frame.position)
-    .addScaledVector(frame.side, state.truck.laneOffset)
-    .addScaledVector(frame.up, 1.14);
+  truck.group.position.copy(frame.position).addScaledVector(frame.side, state.truck.laneOffset).addScaledVector(frame.up, 1.14);
 
   tempMatrix.makeBasis(frame.side, frame.up, frame.tangent);
   tempQuat.setFromRotationMatrix(tempMatrix);
   truck.group.quaternion.slerp(tempQuat, 0.26);
-  updateTruckVisibility();
 
   const wheelSpin = state.truck.speed * dt / 0.48;
-  for (const wheel of truck.wheels) {
-    wheel.rotation.x -= wheelSpin;
-  }
+  for (const wheel of truck.wheels) wheel.rotation.x -= wheelSpin;
+  truck.parts.steeringWheel.rotation.y = state.truck.steerInput * -0.45;
 
-  const targetCamera = getCameraTargets(frame);
-  cameraRig.pos.lerp(targetCamera.position, 0.15);
-  cameraRig.look.lerp(targetCamera.lookAt, 0.2);
-  camera.position.copy(cameraRig.pos);
-  camera.up.copy(frame.up);
-  camera.lookAt(cameraRig.look);
+  updateTruckVisibility();
+  updateCamera(frame);
 }
 
 function updateTruckVisibility() {
   if (state.cameraMode === 1) {
     truck.parts.chassis.visible = false;
+    truck.parts.hood.visible = false;
     truck.parts.cabin.visible = false;
     truck.parts.windshield.visible = false;
     truck.parts.trailer.visible = false;
+    truck.parts.dash.visible = false;
+    truck.parts.steeringWheel.visible = true;
     for (const wheel of truck.wheels) wheel.visible = false;
     return;
   }
 
   if (state.cameraMode === 2) {
     truck.parts.chassis.visible = false;
+    truck.parts.hood.visible = true;
     truck.parts.cabin.visible = false;
     truck.parts.windshield.visible = false;
     truck.parts.trailer.visible = false;
+    truck.parts.dash.visible = false;
+    truck.parts.steeringWheel.visible = false;
     for (const wheel of truck.wheels) wheel.visible = false;
     return;
   }
 
   truck.parts.chassis.visible = true;
+  truck.parts.hood.visible = true;
   truck.parts.cabin.visible = true;
   truck.parts.windshield.visible = true;
   truck.parts.trailer.visible = true;
+  truck.parts.dash.visible = false;
+  truck.parts.steeringWheel.visible = false;
   for (const wheel of truck.wheels) wheel.visible = true;
+}
+
+function updateCamera(frame) {
+  const target = getCameraTargets(frame);
+  const cfg = CAMERA_PRESETS[state.cameraMode];
+
+  cameraRig.pos.lerp(target.position, cfg.posLerp);
+  cameraRig.look.lerp(target.lookAt, cfg.lookLerp);
+
+  camera.position.copy(cameraRig.pos);
+  camera.up.copy(frame.up);
+  camera.lookAt(cameraRig.look);
+
+  if (Math.abs(camera.fov - cfg.fov) > 0.05 || Math.abs(camera.near - cfg.near) > 0.001) {
+    camera.fov = cfg.fov;
+    camera.near = cfg.near;
+    camera.updateProjectionMatrix();
+  }
 }
 
 function getCameraTargets(frame) {
@@ -721,65 +1210,183 @@ function getCameraTargets(frame) {
   const lookAt = new THREE.Vector3();
 
   if (state.cameraMode === 1) {
-    position.copy(truck.group.localToWorld(new THREE.Vector3(0, 2.35, 3.1)));
-    lookAt.copy(truck.group.localToWorld(new THREE.Vector3(0, 2.1, 34)));
+    position.copy(truck.group.localToWorld(new THREE.Vector3(-0.38, 2.4, 2.7)));
+    lookAt.copy(truck.group.localToWorld(new THREE.Vector3(-0.38, 2.16, 30)));
     return { position, lookAt };
   }
 
   if (state.cameraMode === 2) {
-    position.copy(frame.position).addScaledVector(frame.up, 6.3).addScaledVector(frame.tangent, -3);
-    lookAt.copy(frame.position).addScaledVector(frame.tangent, 26).addScaledVector(frame.up, 0.6);
+    position.copy(frame.position).addScaledVector(frame.up, 9.4).addScaledVector(frame.tangent, -8);
+    lookAt.copy(frame.position).addScaledVector(frame.tangent, 20).addScaledVector(frame.up, 0.2);
     return { position, lookAt };
   }
 
-  position.copy(truck.group.localToWorld(new THREE.Vector3(0, 5.9, -12.8)));
-  lookAt.copy(frame.position).addScaledVector(frame.tangent, 18).addScaledVector(frame.up, 2.3);
+  position.copy(truck.group.localToWorld(new THREE.Vector3(0, 5.8, -12.8)));
+  lookAt.copy(frame.position).addScaledVector(frame.tangent, 18).addScaledVector(frame.up, 2.2);
   return { position, lookAt };
 }
 
+function updateGhostTransform(dt, instant = false) {
+  if (!state.ghost.enabled || !state.ghost.bestRun || state.mode !== "racing") {
+    ghostTruck.group.visible = false;
+    return;
+  }
+
+  const run = state.ghost.bestRun;
+  if (!run.samples || run.samples.length < 2 || !Number.isFinite(run.lapTime)) {
+    ghostTruck.group.visible = false;
+    return;
+  }
+
+  if (!instant) {
+    state.ghost.lapTimer += dt;
+  }
+
+  const ghostTime = modulo(state.ghost.lapTimer, run.lapTime);
+  const sample = sampleGhostAtTime(run.samples, ghostTime);
+  const ghostDistance = state.race.lapStartDistance + sample.distance;
+  const frame = sampleTrackByDistance(ghostDistance);
+
+  ghostTruck.group.position.copy(frame.position).addScaledVector(frame.side, sample.lane).addScaledVector(frame.up, 1.14);
+  tempMatrix.makeBasis(frame.side, frame.up, frame.tangent);
+  ghostTruck.group.quaternion.setFromRotationMatrix(tempMatrix);
+  ghostTruck.group.visible = true;
+}
+
+function sampleGhostAtTime(samples, t) {
+  let low = 0;
+  let high = samples.length - 1;
+
+  while (high - low > 1) {
+    const mid = (low + high) >> 1;
+    if (samples[mid].t <= t) low = mid;
+    else high = mid;
+  }
+
+  const a = samples[low];
+  const b = samples[high] ?? a;
+  const duration = Math.max(0.0001, b.t - a.t);
+  const alpha = THREE.MathUtils.clamp((t - a.t) / duration, 0, 1);
+
+  return {
+    distance: THREE.MathUtils.lerp(a.d, b.d, alpha),
+    lane: THREE.MathUtils.lerp(a.l, b.l, alpha),
+  };
+}
+
 function updateTraffic(dt, instant = false) {
+  const nearDistance = state.performance.trafficLodDistance;
+
   for (const vehicle of traffic) {
     if (!instant) {
       vehicle.distance += vehicle.speed * dt;
 
-      if (Math.random() < 0.002) {
-        vehicle.targetLane = vehicle.targetLane < 0 ? 2.6 : -2.6;
-      }
-      vehicle.lane = THREE.MathUtils.lerp(vehicle.lane, vehicle.targetLane, dt * 1.1);
+      if (Math.random() < 0.002) vehicle.targetLane = vehicle.targetLane < 0 ? 2.6 : -2.6;
+      vehicle.lane = THREE.MathUtils.lerp(vehicle.lane, vehicle.targetLane, dt * 1.05);
       vehicle.hitCooldown = Math.max(0, vehicle.hitCooldown - dt);
     }
 
-    const frame = sampleTrackByDistance(vehicle.distance);
-    vehicle.mesh.position
-      .copy(frame.position)
-      .addScaledVector(frame.side, vehicle.lane)
-      .addScaledVector(frame.up, 0.8);
+    const distanceDelta = shortestLoopDistance(vehicle.distance - state.truck.distance, track.totalLength);
 
+    if (Math.abs(distanceDelta) > nearDistance * 1.9) {
+      vehicle.mesh.visible = false;
+      continue;
+    }
+
+    const skipFarFrame = Math.abs(distanceDelta) > nearDistance && state.meta.frame % 2 === 0;
+    if (skipFarFrame && !instant) {
+      vehicle.mesh.visible = true;
+      continue;
+    }
+
+    const frame = sampleTrackByDistance(vehicle.distance);
+    vehicle.mesh.position.copy(frame.position).addScaledVector(frame.side, vehicle.lane).addScaledVector(frame.up, 0.8);
     tempMatrix.makeBasis(frame.side, frame.up, frame.tangent);
     vehicle.mesh.quaternion.setFromRotationMatrix(tempMatrix);
+    vehicle.mesh.visible = true;
 
-    if (state.mode === "racing" && !state.paused && vehicle.hitCooldown <= 0) {
-      const distanceDelta = shortestLoopDistance(vehicle.distance - state.truck.distance, track.totalLength);
+    if (isRunActive() && vehicle.hitCooldown <= 0) {
       const laneDelta = Math.abs(vehicle.lane - state.truck.laneOffset);
-
       if (Math.abs(distanceDelta) < 5.6 && laneDelta < 2.1) {
         vehicle.hitCooldown = 1.1;
         state.truck.speed *= 0.55;
         state.truck.collisions += 1;
         state.score.cleanDrive = Math.max(0, state.score.cleanDrive - 14);
-        state.score.penalties += 35;
+        state.score.penalties += 45;
       }
     }
   }
 }
 
+function updateRoadRules(dt, instant = false) {
+  if (!isRunActive()) return;
+
+  const speedKmh = state.truck.speed * 3.6;
+
+  for (const sign of roadRules.signs) {
+    if (state.truck.distance >= sign.nextTriggerDistance) {
+      state.rules.currentLimit = sign.limit;
+      sign.nextTriggerDistance += track.totalLength;
+    }
+  }
+
+  if (speedKmh > state.rules.currentLimit + 6) {
+    state.rules.overLimitTime += dt;
+  } else {
+    state.rules.overLimitTime = Math.max(0, state.rules.overLimitTime - dt * 1.8);
+  }
+
+  if (state.rules.overLimitTime > 2.4) {
+    state.rules.overLimitTime = 1.2;
+    state.score.penalties += 28;
+    state.score.rulePenalties += 1;
+    state.score.cleanDrive = Math.max(0, state.score.cleanDrive - 3.5);
+  }
+
+  for (const light of roadRules.lights) {
+    const lightState = resolveLightState(state.meta.worldTime + light.offset);
+    light.state = lightState;
+
+    light.bulbs.red.material.emissiveIntensity = lightState === "red" ? 1.6 : 0.08;
+    light.bulbs.yellow.material.emissiveIntensity = lightState === "yellow" ? 1.4 : 0.08;
+    light.bulbs.green.material.emissiveIntensity = lightState === "green" ? 1.6 : 0.08;
+
+    if (state.truck.distance >= light.nextCrossDistance) {
+      if (lightState === "red" && state.truck.speed > 2.0) {
+        state.rules.redLightViolations += 1;
+        state.score.penalties += 70;
+        state.score.rulePenalties += 2;
+        state.score.cleanDrive = Math.max(0, state.score.cleanDrive - 10);
+      }
+      light.nextCrossDistance += track.totalLength;
+    }
+  }
+
+  if (!instant) {
+    state.rules.lastTrafficLightState = roadRules.lights[0]?.state ?? "green";
+  }
+}
+
+function resolveLightState(t) {
+  const local = modulo(t, LIGHT_CYCLE.total);
+  if (local < LIGHT_CYCLE.green) return "green";
+  if (local < LIGHT_CYCLE.green + LIGHT_CYCLE.yellow) return "yellow";
+  return "red";
+}
+
 function updateTiming(dt) {
   state.race.raceTime += dt;
+
+  if (state.mode !== "racing") return;
 
   while (state.truck.distance >= state.race.nextSectorDistance) {
     const sectorIndex = state.race.nextSectorIndex;
     const sectorTime = state.race.raceTime - state.race.sectorStartTime;
+
     state.race.bestSectors[sectorIndex] = Math.min(state.race.bestSectors[sectorIndex], sectorTime);
+    const medal = getSectorMedal(sectorTime, state.race.sectorTargets[sectorIndex]);
+    state.race.sectorMedals[sectorIndex] = betterMedal(state.race.sectorMedals[sectorIndex], medal);
+    state.race.bestSectorMedals[sectorIndex] = betterMedal(state.race.bestSectorMedals[sectorIndex], medal);
 
     state.race.sectorStartTime = state.race.raceTime;
     state.race.nextSectorIndex += 1;
@@ -787,59 +1394,273 @@ function updateTiming(dt) {
 
     if (state.race.nextSectorIndex > 2) {
       const lapTime = state.race.raceTime - state.race.lapStartTime;
-      state.race.lastLap = lapTime;
-      state.race.bestLap = Math.min(state.race.bestLap, lapTime);
-      state.race.lap += 1;
-      state.race.lapStartTime = state.race.raceTime;
-      state.race.sectorStartTime = state.race.raceTime;
-      state.race.nextSectorIndex = 0;
-
-      if (state.race.lap > state.setup.totalLaps) {
-        finishRace();
-        return;
-      }
+      finalizeLap(lapTime);
+      if (state.mode !== "racing") return;
     }
   }
 }
 
+function finalizeLap(lapTime) {
+  state.race.lastLap = lapTime;
+
+  if (lapTime < state.race.bestLap) {
+    state.race.bestLap = lapTime;
+    saveBestGhostRun(lapTime);
+  }
+
+  if (state.daily.id === "daily_clean_lap" && state.truck.collisions === 0) {
+    completeDailyChallenge();
+  }
+
+  state.race.lap += 1;
+  state.race.lapStartTime = state.race.raceTime;
+  state.race.lapStartDistance = state.truck.distance;
+  state.race.sectorStartTime = state.race.raceTime;
+  state.race.nextSectorIndex = 0;
+
+  state.ghost.recording = [];
+  state.ghost.lapTimer = 0;
+
+  if (state.race.lap > state.setup.totalLaps) {
+    finishRace();
+    return;
+  }
+}
+
+function getSectorMedal(sectorTime, target) {
+  if (sectorTime <= target * 0.92) return "G";
+  if (sectorTime <= target * 1.0) return "S";
+  if (sectorTime <= target * 1.12) return "B";
+  return "-";
+}
+
+function betterMedal(a, b) {
+  return MEDAL_ORDER.indexOf(b) > MEDAL_ORDER.indexOf(a) ? b : a;
+}
+
+function updateLicenseChallenge() {
+  if (!state.license.active || state.mode !== "license") return;
+
+  const elapsed = state.race.raceTime;
+  if (elapsed > state.license.timeLimit) {
+    state.license.failed = true;
+    state.license.message = "超时";
+    finishRace();
+    return;
+  }
+
+  const lapDistance = state.truck.distance - state.race.lapStartDistance;
+
+  if (state.license.type === "precision") {
+    const inZone = lapDistance >= state.license.stopZone.start && lapDistance <= state.license.stopZone.end;
+    if (inZone && state.truck.speed * 3.6 < 4.2) {
+      state.license.success = true;
+      state.license.message = "精准刹停成功";
+      finishRace();
+      return;
+    }
+    if (lapDistance > state.license.stopZone.end + 18) {
+      state.license.failed = true;
+      state.license.message = "刹停区通过过快";
+      finishRace();
+      return;
+    }
+    return;
+  }
+
+  if (state.license.type === "slalom") {
+    const gate = state.license.gates[state.license.nextGate];
+    if (!gate) {
+      state.license.success = true;
+      state.license.message = "蛇形门全部通过";
+      finishRace();
+      return;
+    }
+
+    if (lapDistance >= gate.distance) {
+      const laneError = Math.abs(state.truck.laneOffset - gate.targetLane);
+      if (laneError < 1.7) {
+        gate.passed = true;
+        gate.leftPole.material.color.setHex(0x66ff8a);
+        gate.rightPole.material.color.setHex(0x66ff8a);
+        state.license.nextGate += 1;
+      } else if (lapDistance > gate.distance + 8) {
+        state.license.failed = true;
+        state.license.message = "未通过蛇形门";
+        finishRace();
+      }
+    }
+    return;
+  }
+
+  if (state.license.type === "clean") {
+    if (state.truck.collisions > 0 || state.score.rulePenalties > 0) {
+      state.license.failed = true;
+      state.license.message = "出现碰撞或违规";
+      finishRace();
+      return;
+    }
+
+    if (lapDistance >= track.totalLength / 3) {
+      state.license.success = true;
+      state.license.message = "清洁冲刺完成";
+      finishRace();
+    }
+  }
+}
+
+function saveBestGhostRun(lapTime) {
+  if (!state.ghost.recording.length) return;
+
+  const samples = state.ghost.recording.map((point) => ({ t: point.t, d: point.d, l: point.l }));
+  const payload = { lapTime, samples };
+
+  state.ghost.bestRun = payload;
+  saveStorage(STORAGE_KEYS.ghost, payload);
+}
+
+function updateGhostRecording() {
+  if (state.mode !== "racing") return;
+
+  state.ghost.recording.push({
+    t: state.ghost.lapTimer,
+    d: state.truck.distance - state.race.lapStartDistance,
+    l: state.truck.laneOffset,
+  });
+
+  if (state.ghost.recording.length > 1800) {
+    state.ghost.recording.shift();
+  }
+}
+
 function finishRace() {
+  const wasLicense = state.mode === "license";
+
   state.mode = "finished";
   state.paused = false;
-
   dom.hud.classList.add("hidden");
   dom.finishOverlay.classList.add("visible");
+
+  persistStats();
+
+  if (wasLicense) {
+    const medal = computeLicenseMedal();
+    dom.finishTitle.textContent = `${licenseDefinitions[state.license.type].name} | ${medal}`;
+    dom.finishSummary.textContent = state.license.success
+      ? `${state.license.message} | Time ${formatTime(state.race.raceTime)} | Rule Penalty ${state.score.rulePenalties}`
+      : `失败: ${state.license.message} | Time ${formatTime(state.race.raceTime)}`;
+
+    persistedStats.licenseMedals[state.license.type] = betterMedal(persistedStats.licenseMedals[state.license.type] ?? "-", medal);
+    persistStats();
+    return;
+  }
 
   const grade = computeGtGrade();
   const clean = Math.round(state.score.cleanDrive);
   const bestLapText = Number.isFinite(state.race.bestLap) ? formatTime(state.race.bestLap) : "--:--.---";
 
   dom.finishTitle.textContent = `GT Rating ${grade}`;
-  dom.finishSummary.textContent = `Best Lap ${bestLapText} | Clean Drive ${clean} | Collisions ${state.truck.collisions} | Top ${Math.round(state.truck.topSpeedKmh)} km/h`;
+  dom.finishSummary.textContent = `Best Lap ${bestLapText} | Clean ${clean} | Collisions ${state.truck.collisions} | Rule ${state.score.rulePenalties} | Top ${Math.round(state.truck.topSpeedKmh)} km/h`;
 }
 
 function computeGtGrade() {
   const clean = state.score.cleanDrive;
   const collisions = state.truck.collisions;
+  const rule = state.score.rulePenalties;
 
-  if (clean >= 92 && collisions === 0) return "S";
-  if (clean >= 82 && collisions <= 1) return "A";
-  if (clean >= 68) return "B";
+  if (clean >= 93 && collisions === 0 && rule === 0) return "S";
+  if (clean >= 82 && collisions <= 1 && rule <= 1) return "A";
+  if (clean >= 66) return "B";
   return "C";
 }
 
+function computeLicenseMedal() {
+  if (!state.license.success) return "-";
+
+  const t = state.race.raceTime;
+  const limit = state.license.timeLimit;
+
+  if (t <= limit * 0.72 && state.score.rulePenalties === 0) return "G";
+  if (t <= limit * 0.86) return "S";
+  return "B";
+}
+
+function persistStats() {
+  persistedStats.bestLap = state.race.bestLap;
+  persistedStats.bestSectors = [...state.race.bestSectors];
+  persistedStats.bestSectorMedals = [...state.race.bestSectorMedals];
+
+  saveStorage(STORAGE_KEYS.stats, persistedStats);
+}
+
 function updateHud() {
-  const raceTime = state.race.raceTime - state.race.lapStartTime;
+  const lapTime = state.race.raceTime - state.race.lapStartTime;
   const bestLapText = Number.isFinite(state.race.bestLap) ? formatTime(state.race.bestLap) : "--:--.---";
 
+  const limitText = `Limit ${state.rules.currentLimit}`;
+  const lightText = `Light ${state.rules.lastTrafficLightState.toUpperCase()}`;
+
   dom.hudLap.textContent = `LAP ${Math.min(state.race.lap, state.setup.totalLaps)} / ${state.setup.totalLaps}`;
-  dom.hudTime.textContent = `TIME ${formatTime(raceTime)}`;
+  dom.hudTime.textContent = `TIME ${formatTime(lapTime)}`;
   dom.hudBest.textContent = `BEST ${bestLapText}`;
-  dom.hudSector.textContent = `SECTOR ${state.race.nextSectorIndex + 1}`;
+
+  if (state.mode === "license") {
+    const remain = Math.max(0, state.license.timeLimit - state.race.raceTime);
+    dom.hudSector.textContent = `${licenseDefinitions[state.license.type].name} | ${remain.toFixed(1)}s`;
+  } else {
+    dom.hudSector.textContent = `SECTOR ${state.race.nextSectorIndex + 1}`;
+  }
+
+  dom.hudMedals.textContent = `MEDALS ${state.race.sectorMedals.join(" ")}`;
   dom.hudSpeed.textContent = Math.round(state.truck.speed * 3.6).toString();
   dom.hudView.textContent = `VIEW ${state.cameraMode}`;
+  dom.hudAssists.textContent = `ABS ${state.assists.absActive ? "ON" : "OFF"} | TCS ${state.assists.tcsActive ? "ON" : "OFF"}`;
   dom.hudClean.textContent = `Clean Drive ${Math.round(state.score.cleanDrive)}`;
   dom.hudScore.textContent = `GT Points ${Math.max(0, Math.round(state.score.gtPoints - state.score.penalties))}`;
   dom.hudSetup.textContent = `TCS ${state.setup.tcLevel} | ${state.setup.powerMap >= 1.1 ? "RACE" : state.setup.powerMap >= 1 ? "SPORT" : "ECO"}`;
+  dom.hudRule.textContent = `${limitText} | ${lightText}`;
+}
+
+function updateDailyChallengeText() {
+  const suffix = state.daily.completed ? " (已完成)" : "";
+  dom.daily.textContent = state.daily.text + suffix;
+}
+
+function updateDailyProgress() {
+  if (state.daily.completed || state.mode === "license") return;
+
+  if (state.daily.id === "daily_top_speed") {
+    state.daily.progress = Math.max(state.daily.progress, state.truck.topSpeedKmh);
+    if (state.daily.progress >= state.daily.target) completeDailyChallenge();
+    return;
+  }
+
+  if (state.daily.id === "daily_gt_points") {
+    state.daily.progress = Math.max(state.daily.progress, Math.max(0, state.score.gtPoints - state.score.penalties));
+    if (state.daily.progress >= state.daily.target) completeDailyChallenge();
+  }
+}
+
+function completeDailyChallenge() {
+  if (state.daily.completed) return;
+  state.daily.completed = true;
+  state.score.gtPoints += 180;
+
+  if (!persistedStats.dailyDone[state.daily.dateKey]) {
+    persistedStats.dailyDone[state.daily.dateKey] = [];
+  }
+  if (!persistedStats.dailyDone[state.daily.dateKey].includes(state.daily.id)) {
+    persistedStats.dailyDone[state.daily.dateKey].push(state.daily.id);
+  }
+
+  saveStorage(STORAGE_KEYS.stats, persistedStats);
+  updateDailyChallengeText();
+}
+
+function setCameraMode(mode) {
+  state.cameraMode = THREE.MathUtils.clamp(mode, 1, 3);
+  updateTruckVisibility();
+  updateHud();
 }
 
 function togglePause() {
@@ -854,38 +1675,43 @@ function onResize() {
 }
 
 function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen?.();
-  } else {
-    document.exitFullscreen?.();
-  }
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+  else document.exitFullscreen?.();
 }
 
 function loop() {
   const dt = Math.min(clock.getDelta(), 0.05);
-
   step(dt);
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
 
 function step(dt) {
-  if (state.mode === "racing" && !state.paused) {
+  state.meta.frame += 1;
+  state.meta.worldTime += dt;
+
+  if (isRunActive() && !state.paused) {
     updatePhysics(dt);
+    state.ghost.lapTimer += dt;
+    updateGhostRecording();
     updateTiming(dt);
+    updateLicenseChallenge();
+    updateRoadRules(dt);
+    updateDailyProgress();
   }
 
   updateRoadMeshes(state.truck.distance);
   updateTraffic(dt);
   updateTruckTransform(dt);
+  updateGhostTransform(dt);
   updateRacingLine();
   updateHud();
 }
 
 window.advanceTime = (ms) => {
-  const stepCount = Math.max(1, Math.round(ms / (1000 / 60)));
-  const dt = (ms / 1000) / stepCount;
-  for (let i = 0; i < stepCount; i += 1) {
+  const steps = Math.max(1, Math.round(ms / (1000 / 60)));
+  const dt = (ms / 1000) / steps;
+  for (let i = 0; i < steps; i += 1) {
     step(dt);
   }
   renderer.render(scene, camera);
@@ -893,13 +1719,14 @@ window.advanceTime = (ms) => {
 
 window.render_game_to_text = () => {
   const nearbyTraffic = traffic
-    .map((vehicle) => ({
-      distanceAhead: Number(shortestLoopDistance(vehicle.distance - state.truck.distance, track.totalLength).toFixed(1)),
-      laneOffset: Number(vehicle.lane.toFixed(1)),
-      speedKmh: Math.round(vehicle.speed * 3.6),
+    .map((v) => ({
+      distanceAhead: Number(shortestLoopDistance(v.distance - state.truck.distance, track.totalLength).toFixed(1)),
+      laneOffset: Number(v.lane.toFixed(1)),
+      speedKmh: Math.round(v.speed * 3.6),
+      visible: v.mesh.visible,
     }))
-    .filter((entry) => Math.abs(entry.distanceAhead) < 40)
-    .slice(0, 4);
+    .filter((v) => Math.abs(v.distanceAhead) < 50)
+    .slice(0, 5);
 
   return JSON.stringify({
     coordinateSystem: "distance_m increases along track loop; laneOffset_m positive to driver's right",
@@ -910,21 +1737,90 @@ window.render_game_to_text = () => {
       current: Math.min(state.race.lap, state.setup.totalLaps),
       total: state.setup.totalLaps,
       sector: state.race.nextSectorIndex + 1,
+      medals: state.race.sectorMedals,
     },
     truck: {
       speedKmh: Number((state.truck.speed * 3.6).toFixed(1)),
       distanceM: Number(state.truck.distance.toFixed(1)),
       laneOffsetM: Number(state.truck.laneOffset.toFixed(2)),
       collisions: state.truck.collisions,
+      wheelSlip: Number(state.truck.wheelSlip.toFixed(2)),
+    },
+    assists: {
+      abs: state.assists.absActive,
+      tcs: state.assists.tcsActive,
+    },
+    rules: {
+      speedLimit: state.rules.currentLimit,
+      redLightViolations: state.rules.redLightViolations,
+      rulePenaltyCount: state.score.rulePenalties,
     },
     gt: {
       cleanDrive: Math.round(state.score.cleanDrive),
       points: Math.max(0, Math.round(state.score.gtPoints - state.score.penalties)),
       topSpeedKmh: Math.round(state.truck.topSpeedKmh),
     },
+    license: {
+      active: state.license.active,
+      type: state.license.type,
+      message: state.license.message,
+      success: state.license.success,
+      failed: state.license.failed,
+      gateProgress: state.license.nextGate,
+    },
+    daily: {
+      id: state.daily.id,
+      completed: state.daily.completed,
+      progress: Math.round(state.daily.progress),
+      target: state.daily.target,
+    },
+    ghost: {
+      hasBestRun: Boolean(state.ghost.bestRun),
+      visible: ghostTruck.group.visible,
+    },
     traffic: nearbyTraffic,
   });
 };
+
+function buildDailyChallenge() {
+  const now = new Date();
+  const dateKey = now.toISOString().slice(0, 10);
+  const hash = [...dateKey].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  const challenge = dailyDefinitions[hash % dailyDefinitions.length];
+
+  return {
+    dateKey,
+    id: challenge.id,
+    text: challenge.text,
+    target: challenge.target,
+  };
+}
+
+function loadStorage(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function saveStorage(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore storage quota issues
+  }
+}
+
+function isValidGhost(payload) {
+  return Boolean(payload && Number.isFinite(payload.lapTime) && Array.isArray(payload.samples) && payload.samples.length > 2);
+}
+
+function isRunActive() {
+  return state.mode === "racing" || state.mode === "license";
+}
 
 function formatTime(timeSeconds) {
   const totalMs = Math.max(0, Math.floor(timeSeconds * 1000));
@@ -940,8 +1836,6 @@ function modulo(value, length) {
 
 function shortestLoopDistance(delta, length) {
   let wrapped = modulo(delta, length);
-  if (wrapped > length / 2) {
-    wrapped -= length;
-  }
+  if (wrapped > length / 2) wrapped -= length;
   return wrapped;
 }

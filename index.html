@@ -14,15 +14,38 @@
         <div class="panel">
           <p class="eyebrow">Truck Sim x GT DNA</p>
           <h1>Euro Truck GT5 Fusion</h1>
-          <p class="subtitle">高速巡航 + 精准走线 + 分段计时，体验重卡驾驶与 GT 风格融合。</p>
+          <p class="subtitle">高速巡航、精准走线、交通规则与驾照挑战融合在同一张地图里。</p>
 
           <div class="grid-form">
+            <label>
+              模式
+              <select id="mode-select">
+                <option value="race" selected>Race Weekend</option>
+                <option value="license">GT License Challenge</option>
+              </select>
+            </label>
+            <label>
+              驾照项目
+              <select id="license-select">
+                <option value="precision">A-1 精准刹停</option>
+                <option value="slalom">A-2 蛇形控车</option>
+                <option value="clean">A-3 清洁冲刺</option>
+              </select>
+            </label>
             <label>
               圈数
               <select id="laps-select">
                 <option value="2">2 圈</option>
                 <option value="3" selected>3 圈</option>
                 <option value="4">4 圈</option>
+              </select>
+            </label>
+            <label>
+              载重
+              <select id="cargo-select">
+                <option value="0.2">轻载</option>
+                <option value="0.55" selected>标准</option>
+                <option value="0.9">重载</option>
               </select>
             </label>
             <label>
@@ -52,6 +75,11 @@
             </label>
           </div>
 
+          <div class="daily-box">
+            <p class="daily-title">Daily Challenge</p>
+            <p id="daily-challenge" class="daily-text">--</p>
+          </div>
+
           <button id="start-btn" class="button-primary">开始驾驶</button>
 
           <div class="controls">
@@ -59,7 +87,7 @@
             <p>转向: A / D 或 ← / →</p>
             <p>油门 / 刹车: W/S 或 ↑/↓</p>
             <p>视角: 1 / 2 / 3 (或 C 循环)</p>
-            <p>暂停: Esc | 重置车辆: R</p>
+            <p>暂停: Esc | 重置车辆: R | 全屏: F</p>
           </div>
         </div>
       </section>
@@ -79,6 +107,7 @@
           <p id="hud-time">TIME 00:00.000</p>
           <p id="hud-best">BEST --:--.---</p>
           <p id="hud-sector">SECTOR 1</p>
+          <p id="hud-medals">MEDALS -- -- --</p>
         </div>
         <div class="hud-center">
           <div class="speed-block">
@@ -86,11 +115,13 @@
             <small>km/h</small>
           </div>
           <p id="hud-view" class="pill">VIEW 1</p>
+          <p id="hud-assists" class="pill">ABS OFF | TCS OFF</p>
         </div>
         <div class="hud-right">
           <p id="hud-clean">Clean Drive 100</p>
           <p id="hud-score">GT Points 0</p>
           <p id="hud-setup">TCS 4 | SPORT</p>
+          <p id="hud-rule">Limit -- | Light --</p>
         </div>
       </div>
 

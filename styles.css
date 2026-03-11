@@ -6,7 +6,6 @@
   --text: #e9f4ff;
   --accent: #6be2b4;
   --accent-2: #f8cf66;
-  --danger: #ff6969;
 }
 
 * {
@@ -50,7 +49,7 @@ body {
 }
 
 .panel {
-  width: min(760px, 96vw);
+  width: min(820px, 96vw);
   border: 1px solid var(--panel-border);
   border-radius: 18px;
   background: var(--panel);
@@ -75,14 +74,14 @@ h2 {
 .subtitle {
   margin-top: 0;
   color: #cae4f9;
-  max-width: 50ch;
+  max-width: 52ch;
 }
 
 .grid-form {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
-  margin: 18px 0;
+  margin: 18px 0 14px;
 }
 
 label {
@@ -98,6 +97,28 @@ select {
   padding: 10px;
   background: rgba(6, 14, 24, 0.75);
   color: var(--text);
+  font-size: 14px;
+}
+
+.daily-box {
+  margin-bottom: 14px;
+  border: 1px solid rgba(188, 217, 241, 0.28);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(12, 32, 49, 0.58);
+}
+
+.daily-title {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8fd7b7;
+}
+
+.daily-text {
+  margin: 6px 0 0;
+  color: #d5ecff;
   font-size: 14px;
 }
 
@@ -143,7 +164,7 @@ select {
 .hud-left,
 .hud-center,
 .hud-right {
-  min-width: 180px;
+  min-width: 210px;
   background: rgba(7, 16, 28, 0.62);
   border: 1px solid rgba(197, 218, 236, 0.28);
   border-radius: 12px;
@@ -182,6 +203,7 @@ select {
   border-radius: 999px;
   padding: 4px 10px;
   color: #d8ecff;
+  font-size: 12px;
 }
 
 .status-banner {
@@ -210,6 +232,12 @@ select {
 #finish-summary {
   margin: 10px 0 20px;
   color: #dcefff;
+}
+
+@media (max-width: 860px) {
+  .grid-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
