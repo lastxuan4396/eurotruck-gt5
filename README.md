@@ -39,3 +39,10 @@ Open `http://127.0.0.1:4173`.
 ## Render
 
 This repository includes a `render.yaml` Blueprint for a static site deployment.
+
+## GitHub Positioning
+
+- Suggested description: `Browser driving game prototype blending truck simulation and GT-style racing systems.`
+- Suggested topics: `browser-game`, `driving-game`, `simulation`, `html`, `css`, `javascript`
+- Metadata notes: see [`docs/repo-metadata.md`](docs/repo-metadata.md)
+
